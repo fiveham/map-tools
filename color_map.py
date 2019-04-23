@@ -59,7 +59,9 @@ def get_graph(pms):
 #It must be uncolored as yet, must be maximally color-constrained,
 #must have the least possible count of uncolored neighbors, and
 #must have the highest extant supply level among its legal colors
-def uncolored(neighbors, coloring, supply):
+def _uncolored(neighbors, coloring, supply, kicked_back):
+    if kicked_back and coloring[kicked_back[-1]] == 0:
+        return kicked_back[-1]
     max_color_constraint = 0
     vertices = []
     for index,ns in neighbors.items():
@@ -106,9 +108,12 @@ def uncolored(neighbors, coloring, supply):
 
     return min(new_verts)
 
+class Clog(Exception):
+    pass
+
 #Transform and return soup, add Style tag for each color, assign styleUrl to
 #each Placemark to map it to its assigned color.
-def color(soup):
+def _try_color(soup, kicked_back):
     #use index as id for each placemark
     pms = soup("Placemark")
     graph = get_graph(pms)
@@ -125,37 +130,40 @@ def color(soup):
     coloring = {i:0 for i in range(len(pms))}
     supply = Supply(len(pms)//4)
     for pm in pms:
-        i = uncolored(neighbors, coloring, supply)
+        i = _uncolored(neighbors, coloring, supply, kicked_back)
         illegal_colors = {coloring[n] for n in neighbors[i]}
         legal_colors = COLORS - illegal_colors
 
-        #TODO dirty hack
+        try:
+            assert legal_colors
+        except AssertionError:
+            if kicked_back is not None:
+                raise Clog(str(i))
+            else:
+                pass
+
+        #dirty hack
         if not legal_colors:
             legal_colors = set(COLORS)
-            print('Coloring illegally on purpose.')
+            print('Coloring illegally on purpose. (%d)'%i)
         #end dirty hack
         
-        ms_colors = None
-        try:
-            ms_colors = supply.most(legal_colors)
-        except ValueError:
-            print("i = %d"%i)
-            print("neighbors[i] = %s"%str(neighbors[i]))
-            print("illegal_colors = %s"%str(illegal_colors))
-            print("legal_colors = %s"%str(legal_colors))
-            print("coloring = %s"%str(coloring))
-            raise
-        
+        ms_colors = supply.most(legal_colors)
         color = min(ms_colors)
         coloring[i] = supply.take(color)
 
     #Maybe tweak the colorings to ensure color-parity as well as legality?
 
     #Print warnings about problems as a stand-in for now
+    illegals = False
     for edge in (thing for thing in graph if isinstance(thing,frozenset)):
         a,b = edge
         if coloring[a] == coloring[b]:
             print("Illegal color-sharing: %d %s"%(coloring[a],str(edge)))
+            illegals = True
+    else:
+        if not illegals:
+            print("No illegal color-sharing.")
     print("Parity status (%d): %s"%(len(neighbors),
                                     str([sum(1
                                              for color in coloring.values()
@@ -163,3 +171,13 @@ def color(soup):
                                          for x in COLORS])))
 
     return coloring #TODO actually modify the kml soup like I said I would
+
+def color(soup):
+    kickbacks = []
+    while 0 == len(kickbacks) or kickbacks[-1] not in kickbacks[:-1]:
+        try:
+            return _try_color(soup, kickbacks)
+        except Clog as e:
+            kickbacks.append(int(str(e)))
+            print(str(e)+" kicked back")
+    return _try_color(soup, None)
