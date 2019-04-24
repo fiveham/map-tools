@@ -125,11 +125,16 @@ def split(kml_file_name, piece_count, preprocess=None, key=mid_east, measure=cou
     #return part_pms
     
     soups = []
-    for pm_part in part_pms:
+    for i in range(len(part_pms)):
+        pm_part = part_pms[i]
         soup = preprocess(BeautifulSoup(open(kml_file_name,'r'),'xml'))
         for pm in soup("Placemark"):
             pm.decompose()
         for pm in pm_part:
             soup.Document.append(pm)
+        if soup.Document.name is None:
+            soup.Document.insert(0, soup.new_tag('name'))
+        soup.Document.find('name').string = (kml_file_name[:-4] +
+                                             ("_split_%d"%i) + ".kml")
         soups.append(soup)
     return soups
