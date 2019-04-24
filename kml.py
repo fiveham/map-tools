@@ -230,14 +230,19 @@ KMLLAYER_TAG_SUPPORT = {'address': 'no',
                         'x': 'yes',
                         'y': 'yes'}
 
-def filter_kmllayer(soup, exceptions=[]):
-    from bs4.element import Tag
+STD_EXCEPTIONS = ['styleUrl','visibility','open']
+
+def filter_kmllayer(soup, exceptions=STD_EXCEPTIONS):
+    actions = {
+         1: (lambda x : None),
+        -1: (lambda x : x.decompose())}
+    keep = 1
+    decomp = -1
     for tag in soup(lambda thing : isinstance(thing,Tag)):
+        action = (decomp
+                  if (tag.name not in KMLLAYER_TAG_SUPPORT or
+                      KMLLAYER_TAG_SUPPORT[tag.name].lower().startswith('n'))
+                  else keep)
         if tag.name in exceptions:
-            continue
-        if tag.name not in KMLLAYER_TAG_SUPPORT:
-            tag.decompose()
-            continue
-        if KMLLAYER_TAG_SUPPORT[tag.name].lower().startswith('n'):
-            tag.decompose()
-            continue
+            action *= -1
+        actions[action](tag)
