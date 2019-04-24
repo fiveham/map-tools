@@ -76,6 +76,7 @@ def get_data(pm, name):
                 else val).string.strip()
     raise ValueError("Data/SimpleData not found: name='"+str(name)+"'")
 
+#From https://developers.google.com/maps/documentation/javascript/kmllayer
 KMLLAYER_TAG_SUPPORT = {'address': 'no',
                         'AddressDetails': 'no',
                         'Alias': 'N/A',
@@ -203,7 +204,7 @@ KMLLAYER_TAG_SUPPORT = {'address': 'no',
                         'state': 'N/A',
                         'Style': 'yes',
                         'StyleMap': 'no',
-                        'styleUrl': 'N/A',
+                        'styleUrl': 'N/A', #supported in Placemark
                         'targetHref': 'partially',
                         'tessellate': 'no',
                         'text': 'yes',
