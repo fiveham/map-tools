@@ -48,7 +48,7 @@ def count(pms):
     return len(pms)
 
 def characters(pms):
-    return len(str(pms))
+    return sum(len(str(pm)) for pm in pms)
 
 def _coord_string(pms):
     return sum(sum(len(c.string) for c in pm("coordinates")) for pm in pms)
@@ -90,12 +90,14 @@ def _best_neighbor(pt,seq):
             q = w
             n = m
     return n
-            
 
 #Split the map defined in a particular KML file into a certain number of pieces
 #sequencing the Placemarks by mapping each one onto a number using key.
-#Determine whether 
-def split(kml_file_name, piece_count, preprocess=None, key=mid_east, measure=count):
+#measure determines the weight of a given sequence of Placemarks
+#preprocess accepts and returns a soup
+def split(kml_file_name, piece_count,
+          preprocess=None, key=mid_east, measure=count):
+    
     if preprocess is None:
         preprocess = lambda x : x
     source = preprocess(BeautifulSoup(open(kml_file_name,'r'),'xml'))
@@ -122,7 +124,6 @@ def split(kml_file_name, piece_count, preprocess=None, key=mid_east, measure=cou
                    for i in range(1,len(markers))]
     part_pms = [[pms[b[0]] for b in a]
                 for a in partitioned]
-    #return part_pms
     
     soups = []
     for i in range(len(part_pms)):
@@ -135,6 +136,6 @@ def split(kml_file_name, piece_count, preprocess=None, key=mid_east, measure=cou
         if soup.Document.name is None:
             soup.Document.insert(0, soup.new_tag('name'))
         soup.Document.find('name').string = (kml_file_name[:-4] +
-                                             ("_split_%d"%i) + ".kml")
+                                             ("_split_%d" % i))
         soups.append(soup)
     return soups
