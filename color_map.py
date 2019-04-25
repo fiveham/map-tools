@@ -5,6 +5,12 @@
 
 COLORS = {1,2,3,4}
 
+BASE_STYLE = ('<Style id="color%d"><PolyStyle><color>7f%s</color></PolyStyle>'
+            '<LineStyle><color>7f666666</color></LineStyle></Style>')
+
+#kml does colors in aabbggrr order instead of aarrggbb
+COLOR_CODES = [(1, 'a8d7b6'), (2, '065fb4'), (3, '6bb2f6'), (4, '4fa86a')]
+
 class Supply:
     def __init__(self, size=1):
         if not isinstance(self, int) or size < 1:
@@ -152,8 +158,6 @@ def _try_color(soup, kicked_back):
         color = min(ms_colors)
         coloring[i] = supply.take(color)
 
-    #Maybe tweak the colorings to ensure color-parity as well as legality?
-
     #Print warnings about problems as a stand-in for now
     illegals = False
     for edge in (thing for thing in graph if isinstance(thing,frozenset)):
@@ -170,7 +174,25 @@ def _try_color(soup, kicked_back):
                                              if color == x)
                                          for x in COLORS])))
 
-    return coloring #TODO actually modify the kml soup like I said I would
+    #Apply chosen coloring dict to the soup
+    #Add the Styles to the soup.
+    #Remove preexisting Styles with the same ids.
+    #Change each Placemark's styleUrl to correspond to the color chosen
+    #    for that Placemark
+    from bs4 import BeautifulSoup
+    styles = [BeautifulSoup(BASE_STYLE % (a,b), 'xml') for a,b in COLOR_CODES]
+    for style in reversed(styles):
+        incumbents = soup.Document(lambda tag :
+                                   (tag.name == "Style" and
+                                    'id' in tag.attrs and
+                                    tag['id'] == style.Style['id']))
+        for incumbent in incumbents:
+            incumbent.decompose()
+        soup.Document.find("name").insert_after(style.Style)
+    for i,color in coloring.items():
+        pms[i].styleUrl.string = "#color%d" % color
+    
+    return coloring
 
 def color(soup):
     kickbacks = []
