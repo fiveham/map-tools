@@ -1,5 +1,27 @@
 #Given several adjacent districts in terms of their boundaries, find the
 #boundary of the union of the districts.
+#
+#As long as all the boundaries share the same winding scheme, adding the
+#directed edges together should cause the oppositely-oriented edges of adjacent
+#polygons in the interior to negate one another while leaving the unopposed
+#edges of the outer boundary(ies) intact.
+#
+#A winding scheme is either of the following: 1. that outer boundaries' vertices
+#build up clockwise and inner boundaries' vertices build up counterclockwise, or
+#2. that outer boundaries' vertices build up counterclockwise and inner
+#boundaries' vertices build up clockwise.
+#
+#The script is named after Stokes's theorem, in which the net curl in a 2D
+#surface region (the integral of the curl-density at each point in the region)
+#can be summarily calculated by integrating a slightly different
+#curl/curl-density term over the 1D border of the 2D region in question.
+#Basically, curly things laid flat and pushed right up against each other
+#naturally push the curliness out to the edge. So, by just tracking where the
+#curliness in a region loaded with polygons is (even though this is discrete
+#curliness) and isn't, we can identify the outer edge(s) and ignore the inner
+#ones.
+#
+#Relevant SMBC: https://www.smbc-comics.com/comic/2014-02-24
 
 def _proper(edge):
     a = edge[0]
@@ -23,11 +45,9 @@ def _sides(polygon):
         yield side
 
 def _vital_dicts(polygons):
-    #print("Generate vital dictionaries")
     verts_to_edges = {}
     edges_proper_orients = {}
     for polygon in polygons:
-        #print("checking a polygon")
         for edge in _sides(polygon):
             edge_proper, orient = _proper(edge)
 
@@ -70,22 +90,18 @@ def _next_edge(edges_proper, current_edge, edges_proper_orients):
 
 #Each polygon vertex list's first vertex should equal that list's last vertex
 def stokes(polygons):
-    #print("in stokes")
     if len(polygons) == 0:
         return []
     if len(polygons) == 1:
         return [list(polygons[0])]
 
-    #print("not a degenerate stokes case" + str(len(polygons)))
     net_boundaries = []
     
     verts_to_edges, edges_proper_orients = _vital_dicts(polygons)
     used_edges = set()
     while True:
-        #print("in main stokes loop")
         try:
             current_edge = _seed_edge(edges_proper_orients, used_edges)
-            #print(current_edge)
             vertices = [current_edge[0], current_edge[1]]
             used_edges.add(_proper(current_edge)[0])
             while vertices[-1] != vertices[0]:
@@ -98,9 +114,7 @@ def stokes(polygons):
                 current_edge = next_edge
             net_boundaries.append(vertices)
         except SeedException:
-            #print("seed exception")
             break
 
-    #print("%d boundaries" % len(net_boundaries))
     net_boundaries.sort(key=len)
     return net_boundaries
