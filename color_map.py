@@ -13,7 +13,7 @@ COLOR_CODES = [(1, 'a8d7b6'), (2, '065fb4'), (3, '6bb2f6'), (4, '4fa86a')]
 
 class Supply:
     def __init__(self, size=1):
-        if not isinstance(self, int) or size < 1:
+        if not isinstance(size, int) or size < 1:
             size = 1
         self.levels = {color:size for color in COLORS}
 
