@@ -16,20 +16,18 @@ class Supply:
         if not isinstance(size, int) or size < 1:
             size = 1
         self.levels = {color:size for color in COLORS}
-
+    
     def most(self, colors):
-        cm = {color:self.levels[color] for color in colors}
-        demand = max(cm.values())
-        result = set(color for color,v in cm.items() if demand == v)
-        return result
-
+        target_level = max(self.levels[c] for c in colors)
+        return set(c for c in colors if self.levels[c] == target_level)
+    
     def take(self, color):
         self.levels[color] = self.levels[color] - 1
         while any(x < 1 for x in self.levels.values()):
             for c in self.levels:
                 self.levels[c] = 1 + self.levels[c]
         return color
-
+    
     def check(self, color):
         return self.levels[color]
 
@@ -65,54 +63,30 @@ def get_graph(pms):
 #It must be uncolored as yet, must be maximally color-constrained,
 #must have the least possible count of uncolored neighbors, and
 #must have the highest extant supply level among its legal colors
+#
+# A. Start with a list of all the vertices.
+# B. Narrow that list down to the vertices that have the fewest options for
+#    what color they can become.
+# C. Narrow that list down further to those that also have the fewest uncolored
+#    neighbors--those that will have the least impact on the rest of the graph
+#    when colored.
+# D. Narrow that list down even further to those vertices whose most-in-supply
+#    possible color is the most in-supply color in the aggregate among the
+#    vertices in the list.
+# E. Return whichever vertex from that list came earliest in the original file.
+#
+#NOTE: Due to changes made while debugging, this function currenty only does
+#      steps A, B, and E from the list above.
 def _uncolored(neighbors, coloring, supply, kicked_back):
-    if kicked_back and coloring[kicked_back[-1]] == 0:
-        return kicked_back[-1]
-    max_color_constraint = 0
-    vertices = []
-    for index,ns in neighbors.items():
-        if coloring[index] != 0:
+    for avail_color_count in range(1,5):
+        verts = {v
+                 for v in neighbors
+                 if (coloring[v] == 0 and
+                     avail_color_count == len(COLORS - {coloring[n]
+                                                        for n in neighbors[v]}))}
+        if not verts:
             continue
-        color_constraint = len({c
-                                for c in (coloring[n]
-                                          for n in ns)
-                                if c != 0})
-        if color_constraint > max_color_constraint:
-            max_color_constraint = color_constraint
-            vertices = []
-        if color_constraint == max_color_constraint:
-            vertices.append(index)
-
-    min_uncolored_neighbors = len(neighbors)
-    new_verts = []
-    for vert in vertices:
-        uncolored_neighbors = sum(1
-                                  for n in neighbors[vert]
-                                  if coloring[n] == 0)
-        if uncolored_neighbors < min_uncolored_neighbors:
-            min_uncolored_neighbors = uncolored_neighbors
-            new_verts = []
-        if uncolored_neighbors == min_uncolored_neighbors:
-            new_verts.append(vert)
-    vertices = new_verts
-    del new_verts
-
-    max_max_supply = 0
-    new_verts = []
-    for vert in vertices:
-        illegal_colors = {c
-                          for c in (coloring[n]
-                                    for n in ns)
-                          if c != 0}
-        max_supply = max(supply.check(color)
-                         for color in (COLORS - illegal_colors))
-        if max_supply > max_max_supply:
-            max_max_supply = max_supply
-            new_verts = []
-        if max_supply == max_max_supply:
-            new_verts.append(vert)
-
-    return min(new_verts)
+        return next(iter(verts))
 
 class Clog(Exception):
     pass
@@ -143,10 +117,10 @@ def _try_color(soup, kicked_back):
         try:
             assert legal_colors
         except AssertionError:
-            if kicked_back is not None:
+            if kicked_back is not None: #part of the dirty hack below
                 raise Clog(str(i))
             else:
-                pass
+                pass #part of the dirty hack below
 
         #dirty hack
         if not legal_colors:
@@ -154,8 +128,8 @@ def _try_color(soup, kicked_back):
             print('Coloring illegally on purpose. (%d)'%i)
         #end dirty hack
         
-        ms_colors = supply.most(legal_colors)
-        color = min(ms_colors)
+        most_supplied_legal_colors = supply.most(legal_colors)
+        color = min(most_supplied_legal_colors)
         coloring[i] = supply.take(color)
 
     #Print warnings about problems as a stand-in for now
@@ -174,11 +148,11 @@ def _try_color(soup, kicked_back):
                                              if color == x)
                                          for x in COLORS])))
 
-    #Apply chosen coloring dict to the soup
+    #Apply chosen coloring dict to the Placemarks in the soup.
     #Add the Styles to the soup.
-    #Remove preexisting Styles with the same ids.
-    #Change each Placemark's styleUrl to correspond to the color chosen
-    #    for that Placemark
+    #But first, remove preexisting Styles with the same ids.
+    #Change each Placemark's styleUrl to correspond to the color chosen for that
+    #Placemark.
     from bs4 import BeautifulSoup
     styles = [BeautifulSoup(BASE_STYLE % (a,b), 'xml') for a,b in COLOR_CODES]
     for style in reversed(styles):
@@ -188,7 +162,11 @@ def _try_color(soup, kicked_back):
                                     tag['id'] == style.Style['id']))
         for incumbent in incumbents:
             incumbent.decompose()
-        soup.Document.find("name").insert_after(style.Style)
+            
+        name_tag = soup.Document.find('name', recursive=False)
+        if name_tag: name_tag.insert_after(style.Style)
+        else:        soup.Document.insert(0, style.Style)
+    
     for i,color in coloring.items():
         pms[i].styleUrl.string = "#color%d" % color
     
@@ -202,4 +180,5 @@ def color(soup):
         except Clog as e:
             kickbacks.append(int(str(e)))
             print(str(e)+" kicked back")
+    print("trying with no safeties")
     return _try_color(soup, None)
