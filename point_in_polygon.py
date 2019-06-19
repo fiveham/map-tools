@@ -8,21 +8,31 @@ class BoundaryException(Exception):
 class BBox:
     def __init__(self, x, X, y, Y, illegal=False):
         if not illegal:
-            assert x <= X
-            assert y <= Y
+            assert x <= X, 'x > X: %s > %s' % (x, X)
+            assert y <= Y, 'y > Y: %s > %s' % (y, Y)
         self.x = x
         self.y = y
         self.X = X
         self.Y = Y
+    
     def __contains__(self, item):
         x,y = item
+        #treat equality as inside to ensure that if the point is also on
+        #the boundary of the polygon itself the user-specified edge_okay
+        #value ultimately gets returned
         return self.x <= x and x <= self.X and self.y <= y and y <= self.Y
+    
     def __bool__(self):
         return True
 
 class Ring(list):
     def __init__(self, points):
-        assert points[0] == points[-1]
+        assert all(points[0][i] == points[-1][i] for in in range(2)), (
+                ('first and last point on a boundary must have the same first '
+                 'two dimensions: %s,%s != %s,%s') % (points[0][0],
+                                                      points[0][1],
+                                                      points[-1][0],
+                                                      points[-1][1]))
         super(Ring, self).__init__(points)
         
         e = BBox(10**9, -10**9, 10**9, -10**9, illegal=True)
@@ -81,7 +91,9 @@ def _turning_sign(point, v1, v2):
 def _turning(point, v1, v2):
     o1 = _orient(point, v1)
     o2 = _orient(point, v2)
-    sign = _turning_sign(point, v1, v2) #call early in case BoundaryException
+    
+    #call early in case it raises a BoundaryException
+    sign = _turning_sign(point, v1, v2) 
     
     angle = o2 - o1
     if angle < -2:
@@ -125,30 +137,35 @@ def point_in_polygon(point, polygon, edge_okay=False):
 class Polygon:
     def __init__(self, outers, inners=None, clockwise=False):
 
-        assert len(outers) > 0
+        assert len(outers) > 0, 'need at least one outer boundary'
         inners = inners or []
 
         #In case the caller sends outers=outer instead of outers=[outer]
         #where outer is the single outer ring for a polygon with only one
         #outer boundary
         for variety in [outers, inners]:
-            assert isinstance(variety, list)
+            assert isinstance(variety, list), ('`outers` and `inners` must be '
+                                               'of type `list`')
             if variety: #has contents
                 for boundary in variety:
-                    assert isinstance(boundary, list)
-                    assert len(boundary) > 0
+                    assert isinstance(boundary, list), ('each boundary must be '
+                                                        'of type `list`')
+                    assert len(boundary) > 0, 'a boundary may not be empty'
                     for pt in boundary:
-                        assert isinstance(pt, tuple)
-                        assert len(pt) >= 2
+                        assert isinstance(pt, tuple), ('the vertices of a '
+                                                       'boundary must be of '
+                                                       'type `tuple`')
+                        assert len(pt) >= 2, ('each vertex on a boundary must '
+                                              'have at least two coordinates')
         
         orderer = reversed if clockwise else (lambda x : x)
         
         self.outers = [Ring(list(orderer(outer))) for outer in outers]        
         self.inners = [Ring(list(orderer(inner))) for inner in inners]
         
-        assert all(any(_point_in_ring(inner[0], outer)
-                       for outer in self.outers)
-                   for inner in self.inners)
+##        assert all(any(_point_in_ring(inner[0], outer)
+##                       for outer in self.outers)
+##                   for inner in self.inners)
     
     def __contains__(self, point):
         return point_in_polygon(point, self)
