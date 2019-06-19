@@ -152,3 +152,23 @@ class Polygon:
     
     def __contains__(self, point):
         return point_in_polygon(point, self)
+
+    @property
+    def vertices(self):
+        for outer in outers:
+            for vertex in outer[:-1]:
+                yield vertex
+        for inner in inners:
+            for vertex in inner[:-1]:
+                yield vertex
+
+    @property
+    def sides(self):
+        for outer in outers:
+            for i in range(1, len(outer)):
+                side = (outer[i-1], outer[i])
+                yield side
+        for inner in inners:
+            for i in range(1, len(inner)):
+                side = (inner[i-1], inner[i])
+                yield side
