@@ -79,13 +79,14 @@ def get_data(pm, name):
 def add(tag, name, soup=None):
     soup = soup or (tag
                     if tag.parent is None
-                    else soup = next(iter(parent
-                                          for parent in tag.parents
-                                          if parent.parent is None)))
+                    else next(iter(parent
+                                   for parent in tag.parents
+                                   if parent.parent is None)))
     if isinstance(name, list):
         pointer = tag
         for n in name:
             pointer = add(tag, n, soup=soup)
+        return pointer
     new = soup.new_tag(name)
     tag.append(new)
     return new
@@ -98,9 +99,10 @@ xmlns:kml="http://www.opengis.net/kml/2.2"
 xmlns:atom="http://www.w3.org/2005/Atom">
 <Document>
 </Document>
-</kml>"""
+</kml>""")
 
 def new_soup(src=_SOUP_STOCK, name=None):
+    from bs4 import BeautifulSoup
     soup = BeautifulSoup(src, 'xml')
     if name is not None:
         add(soup.Document, 'name').string = name
