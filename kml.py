@@ -76,8 +76,16 @@ def get_data(pm, name):
                 else val).string.strip()
     raise ValueError("Data/SimpleData not found: name='"+str(name)+"'")
 
-def add(tag, name):
-    soup = next(iter(parent for parent in tag.parents if parent.parent is None))
+def add(tag, name, soup=None):
+    soup = soup or (tag
+                    if tag.parent is None
+                    else soup = next(iter(parent
+                                          for parent in tag.parents
+                                          if parent.parent is None)))
+    if isinstance(name, list):
+        pointer = tag
+        for n in name:
+            pointer = add(tag, n, soup=soup)
     new = soup.new_tag(name)
     tag.append(new)
     return new
