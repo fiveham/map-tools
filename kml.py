@@ -76,6 +76,29 @@ def get_data(pm, name):
                 else val).string.strip()
     raise ValueError("Data/SimpleData not found: name='"+str(name)+"'")
 
+def add(tag, name):
+    soup = next(iter(parent for parent in tag.parents if parent.parent is None))
+    new = soup.new_tag(name)
+    tag.append(new)
+    return new
+
+_SOUP_STOCK = (
+"""<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"
+xmlns:gx="http://www.google.com/kml/ext/2.2"
+xmlns:kml="http://www.opengis.net/kml/2.2"
+xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+</Document>
+</kml>"""
+
+def new_soup(src=_SOUP_STOCK, name=None):
+    soup = BeautifulSoup(src, 'xml')
+    if name is not None:
+        add(soup.Document, 'name').string = name
+    format(soup)
+    return soup
+
 #From https://developers.google.com/maps/documentation/javascript/kmllayer
 KMLLAYER_TAG_SUPPORT = {'address': 'no',
                         'AddressDetails': 'no',
