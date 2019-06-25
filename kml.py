@@ -85,7 +85,7 @@ def add(tag, name, soup=None):
     if isinstance(name, list):
         pointer = tag
         for n in name:
-            pointer = add(tag, n, soup=soup)
+            pointer = add(pointer, n, soup=soup)
         return pointer
     new = soup.new_tag(name)
     tag.append(new)
