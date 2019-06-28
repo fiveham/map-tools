@@ -1,12 +1,25 @@
-#For when a point is too close to a boundary to tell for sure which
-#side it's on due to floating point rounding errors.
-#In practice, the size of iffiness around a boundary will be far larger than
-#the region called into question due to propagation of floating-point errors.
+"""A script to do point-in-polygon testing for GIS."""
+
 class BoundaryException(Exception):
+    """An exception to be raised if and when a point being tested is found to
+       sit on the boundary of the polygon. Because that sort of information can
+       define the point's inside/outside status, an exception thrown back up
+       the call stack provides a shortcut and a quicker answer."""
     pass
 
 class BBox:
+    """A class to model the bounding box of a collection of points in 2D
+       space."""
+
     def __init__(self, x, X, y, Y, illegal=False):
+        """
+           `x`: low x value
+           `X`: high x value
+           `y`: low y value
+           `Y`: high y value
+           `illegal`: if True, skip tests to check that low x and y values are
+                      less or equal to their high counterparts. Defaults to
+                      False."""
         if not illegal:
             assert x <= X, 'x > X: %s > %s' % (x, X)
             assert y <= Y, 'y > Y: %s > %s' % (y, Y)
@@ -21,18 +34,36 @@ class BBox:
         #the boundary of the polygon itself the user-specified edge_okay
         #value ultimately gets returned
         return self.x <= x and x <= self.X and self.y <= y and y <= self.Y
-    
+
+    def __add__(self, bbox):
+        if not isinstance(bbox, BBox):
+            raise TypeError
+        x = min(self.x, bbox.x)
+        X = max(self.X, bbox.X)
+        y = min(self.y, bbox.y)
+        Y = max(self.Y, bbox.Y)
+        return BBox(x,X,y,Y)
+
     def __bool__(self):
         return True
 
 class Ring(list):
+    """A class to represent an inner or outer boundary of a Polygon and to
+       maintain a reference to that boundary's bounding box."""
+    
     def __init__(self, points):
-        assert all(points[0][i] == points[-1][i] for in in range(2)), (
+        assert all(points[0][i] == points[-1][i] for i in range(2)), (
                 ('first and last point on a boundary must have the same first '
                  'two dimensions: %s,%s != %s,%s') % (points[0][0],
                                                       points[0][1],
                                                       points[-1][0],
                                                       points[-1][1]))
+        p0x, p0y = points[0][:2]
+        p1x, p1y = points[-1][:2]
+        if p0x != p1x or p0y != p1y:
+            raise ValueError(
+                ('first and last point on a boundary must have the same first '
+                 'two dimensions: %s,%s != %s,%s') % (p0x, p0y, p1x, p1y))
         super(Ring, self).__init__(points)
         
         e = BBox(10**9, -10**9, 10**9, -10**9, illegal=True)
@@ -125,6 +156,14 @@ def _point_in_polygon(point, polygon):
     return True
 
 def point_in_polygon(point, polygon, edge_okay=False):
+    """Return `True` if `point` is in `polygon`, `False` otherwise.
+
+    ``point``: a tuple of numbers with at least two elements or any other
+    object subscriptable with 0 and 1
+    (for example, a dict {1: -43, 50: 'a', 0: 91})
+    ``polygon``: a `Polygon` as defined in this script.
+    ``edge_okay``: `True` if a point on the boundary of `polygon` should be
+    considered to be inside the polygon, `False` otherwise."""
     try:
         return _point_in_polygon(point, polygon)
     except BoundaryException:
@@ -133,9 +172,21 @@ def point_in_polygon(point, polygon, edge_okay=False):
 #Originally this class was intended to be used with polygons from KML files,
 #and in the KML standard polygons wind counterclockwise.
 #So all the point-in-polygon functions in this script implicitly rely on
-#counterclockwise winding.
+#counterclockwise winding for outer boundaries.
 class Polygon:
-    def __init__(self, outers, inners=None, clockwise=False):
+    """A class to represent a polygon for GIS applications, with one or more
+       outer boundaries and zero or more inner boundaries."""
+    
+    def __init__(self, outers, inners=None, clockwise=False, info=None,
+                 edge_okay=False):
+        """
+        ``outers``: a list of one or more outer boundaries
+        ``inners``: if specified, a list of zero or more inner boundaries
+        ``clockwise``: `False` or falsey if outer boundaries wind
+        counter-clockwise as in the KML standard, `True` or truthy if outer
+        boundaries wind clockwise, as in the Shapefile standard. Default is
+        `False`.
+        ``info``: Any data or metadata object the user wants."""
 
         assert len(outers) > 0, 'need at least one outer boundary'
         inners = inners or []
@@ -162,30 +213,68 @@ class Polygon:
         
         self.outers = [Ring(list(orderer(outer))) for outer in outers]        
         self.inners = [Ring(list(orderer(inner))) for inner in inners]
-        
-##        assert all(any(_point_in_ring(inner[0], outer)
-##                       for outer in self.outers)
-##                   for inner in self.inners)
-    
-    def __contains__(self, point):
-        return point_in_polygon(point, self)
 
+        self.info = info
+        self.edge_okay = edge_okay
+        
+    def __contains__(self, point):
+        return point_in_polygon(point, self, edge_okay=self.edge_okay)
+    
+    @property
+    def rings(self):
+        """Return a generator that iterates over all the boundaries of this
+           Polygon, both outer and inner."""
+        for o in self.outers:
+            yield o
+        for i in self.inners:
+            yield i
+    
+    @property
+    def bbox(self):
+        """Return the overall outer bounding box of this Polygon encapsulating
+           the least and greatest x and y coordinates among all this Polygon's
+           vertices."""
+        return sum((ring.bbox for ring in self.rings), BBox(0,0,0,0))
+    
     @property
     def vertices(self):
-        for outer in outers:
-            for vertex in outer[:-1]:
+        """Return a generator that iterates over all the vertices of this
+           Polygon. Since the first point of a boundary is duplicated as the
+           last point, all such points will occur twice."""
+        for ring in self.rings:
+            for vertex in ring:
                 yield vertex
-        for inner in inners:
-            for vertex in inner[:-1]:
-                yield vertex
-
+    
     @property
     def sides(self):
-        for outer in outers:
-            for i in range(1, len(outer)):
-                side = (outer[i-1], outer[i])
+        """Return a generator that iterates over all the sides of all the
+           boundaries (both inner and outer) of this Polygon."""
+        for ring in self.rings:
+            for i in range(1, len(ring)):
+                side = (ring[i-1], ring[i])
                 yield side
-        for inner in inners:
-            for i in range(1, len(inner)):
-                side = (inner[i-1], inner[i])
-                yield side
+
+def from_shape(shape, info=None, edge_okay=False):
+    """Convert a shapefile.py shape into a Polygon"""
+    import shapefile
+    bounds = list(shape.parts) + [len(shape.points)]
+    lines = []
+    for i in range(1,len(bounds)):
+        start = bounds[i-1]
+        stop  = bounds[i]
+        lines.append(list(shape.points[start:stop]))
+    
+    #separate lines into outer/inner boundaries (using winding/signed area)
+    outers = []
+    inners = []
+    for line in lines:
+        #value >= 0 indicates a counter-clockwise oriented ring
+        #Negative value -> outer boundary
+        a = shapefile.signed_area(line)
+        if a >= 0:
+            inners.append(line)
+        else:
+            outers.append(line)
+    
+    return Polygon(outers, inners, clockwise=True, info=info,
+                   edge_okay=edge_okay)
