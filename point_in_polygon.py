@@ -86,6 +86,12 @@ class _Ring(list):
     def __contains__(self, point):
         return point in self.bbox and -4 == _winding(point, self)
 
+    def contains(self, point, edge_okay=False):
+        try:
+            return point in self
+        except BoundaryException:
+            return edge_okay
+
 def _turning_sign(point, v1, v2):
     #cross-product
     x = ((v2[0] - point[0]) * (v1[1] - point[1]) -
@@ -208,9 +214,13 @@ class Polygon:
             while unassigned_inners:
                 assign_me = unassigned_inners.pop()
                 point = assign_me[0]
-                container = next(iter(i
-                                      for i in range(len(self.outers))
-                                      if point in self.outers[i]))
+                containers = [i
+                              for i in range(len(self.outers))
+                              if self.outers[i].contains(point,
+                                                         edge_okay=True)]
+                container = min(containers,
+                                key=(lambda x : self.outers[x].area))
+                
                 self._out_to_in[container].append(assign_me)
             for v in self._out_to_in.values():
                 v.sort(key=_SORT_BY_AREA_VERTS)
