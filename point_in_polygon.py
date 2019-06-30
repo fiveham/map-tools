@@ -66,9 +66,9 @@ class _Ring(list):
                  'two dimensions: %s,%s != %s,%s') % (p0x, p0y, p1x, p1y))
         import shapefile
         self.area = shapefile.signed_area(points)
-        super(Ring, self).__init__(points
-                                   if self.area >= 0
-                                   else reversed(points))
+        super(_Ring, self).__init__(points
+                                    if self.area >= 0
+                                    else reversed(points))
         self.area = abs(self.area)
         
         e = BBox(10**9, -10**9, 10**9, -10**9, illegal=True)
