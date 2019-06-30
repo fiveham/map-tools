@@ -104,7 +104,7 @@ class Quad(Enum):
     IV  = 3 # Fourth quadrant, for x<0, y>0
 
 ERR_RAD_DEG = 8.98315e-07 #in degrees. Along equator, about 10 centimeters
-ERR_RAG_DEG_SQ = ERR_RAD_DEG ** 2 #precomputed for reuse
+ERR_RAD_DEG_SQ = ERR_RAD_DEG ** 2 #precomputed for reuse
 
 #Return the quadrant v is in with respect to point as the origin.
 def _orient(point, v):
