@@ -3,33 +3,39 @@
 #is defined using the same points in both regions, color the regions using at
 #most four colors, represented by the numbers 1 through 4.
 
+from collections import Counter
+
 COLORS = {1,2,3,4}
 
 BASE_STYLE = ('<Style id="color%d"><PolyStyle><color>7f%s</color></PolyStyle>'
             '<LineStyle><color>7f666666</color></LineStyle></Style>')
 
+THICK_WHITE_BORDER = ('<Style id="color%d"><PolyStyle><color>7f%s</color>'
+                      '</PolyStyle><LineStyle><color>99ffffff</color>'
+                      '<width>3</width></LineStyle></Style>')
+
 #kml does colors in aabbggrr order instead of aarrggbb
 COLOR_CODES = [(1, 'a8d7b6'), (2, '065fb4'), (3, '6bb2f6'), (4, '4fa86a')]
 
-class Supply:
+class Supply(Counter):
     def __init__(self, size=1):
         if not isinstance(size, int) or size < 1:
             size = 1
-        self.levels = {color:size for color in COLORS}
+        super(Supply, self).__init__()
+        for color in COLORS:
+            self[color] = size
     
     def most(self, colors):
-        target_level = max(self.levels[c] for c in colors)
-        return set(c for c in colors if self.levels[c] == target_level)
+        as_dict = {c:self[c] for c in colors}
+        target = max(as_dict.values())
+        return {color for color,count in as_dict.items() if count == target}
     
     def take(self, color):
-        self.levels[color] = self.levels[color] - 1
-        while any(x < 1 for x in self.levels.values()):
-            for c in self.levels:
-                self.levels[c] = 1 + self.levels[c]
+        self[color] -= 1
+        while any(v < 1 for v in self.values()):
+            for c in self:
+                self[c] += 1
         return color
-    
-    def check(self, color):
-        return self.levels[color]
 
 def get_graph(pms):
     #Map from each boundary segment (edge) to the placemarks (ids) that have
@@ -79,21 +85,24 @@ def get_graph(pms):
 #      steps A, B, and E from the list above.
 def _uncolored(neighbors, coloring, supply, kicked_back):
     for avail_color_count in range(1,5):
-        verts = {v
-                 for v in neighbors
-                 if (coloring[v] == 0 and
-                     avail_color_count == len(COLORS - {coloring[n]
-                                                        for n in neighbors[v]}))}
-        if not verts:
-            continue
-        return next(iter(verts))
+        verts = set()
+        for v in neighbors:
+            my_color = coloring[v]
+            if my_color == 0:
+                my_neighbors = neighbors[v]
+                neighboring_colors = {coloring[my_neighbor]
+                                      for my_neighbor in my_neighbors}
+                available_colors = COLORS - neighboring_colors
+                if avail_color_count == len(available_colors):
+                    return v
+    raise Exception("It shouldn't be possible to reach this point.")
 
 class Clog(Exception):
     pass
 
 #Transform and return soup, add Style tag for each color, assign styleUrl to
 #each Placemark to map it to its assigned color.
-def _try_color(soup, kicked_back):
+def _try_color(soup, kicked_back, base_style):
     #use index as id for each placemark
     pms = soup("Placemark")
     graph = get_graph(pms)
@@ -111,7 +120,7 @@ def _try_color(soup, kicked_back):
     supply = Supply(len(pms)//4)
     for pm in pms:
         i = _uncolored(neighbors, coloring, supply, kicked_back)
-        illegal_colors = {coloring[n] for n in neighbors[i]}
+        illegal_colors = {coloring[n] for n in neighbors[i]} 
         legal_colors = COLORS - illegal_colors
 
         try:
@@ -154,7 +163,7 @@ def _try_color(soup, kicked_back):
     #Change each Placemark's styleUrl to correspond to the color chosen for that
     #Placemark.
     from bs4 import BeautifulSoup
-    styles = [BeautifulSoup(BASE_STYLE % (a,b), 'xml') for a,b in COLOR_CODES]
+    styles = [BeautifulSoup(base_style % (a,b), 'xml') for a,b in COLOR_CODES]
     for style in reversed(styles):
         incumbents = soup.Document(lambda tag :
                                    (tag.name == "Style" and
@@ -164,21 +173,27 @@ def _try_color(soup, kicked_back):
             incumbent.decompose()
             
         name_tag = soup.Document.find('name', recursive=False)
-        if name_tag: name_tag.insert_after(style.Style)
-        else:        soup.Document.insert(0, style.Style)
+        if name_tag:
+            name_tag.insert_after(style.Style)
+        else:
+            soup.Document.insert(0, style.Style)
     
     for i,color in coloring.items():
-        pms[i].styleUrl.string = "#color%d" % color
+        u = pms[i].styleUrl
+        if not u:
+            import kml
+            u = kml.add(pms[i], 'styleUrl')
+        u.string = "#color%d" % color
     
     return coloring
 
-def color(soup):
+def color(soup, base_style=BASE_STYLE):
     kickbacks = []
     while 0 == len(kickbacks) or kickbacks[-1] not in kickbacks[:-1]:
         try:
-            return _try_color(soup, kickbacks)
+            return _try_color(soup, kickbacks, base_style)
         except Clog as e:
             kickbacks.append(int(str(e)))
             print(str(e)+" kicked back")
     print("trying with no safeties")
-    return _try_color(soup, None)
+    return _try_color(soup, None, base_style)
