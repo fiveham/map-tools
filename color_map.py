@@ -102,7 +102,7 @@ class Clog(Exception):
 
 #Transform and return soup, add Style tag for each color, assign styleUrl to
 #each Placemark to map it to its assigned color.
-def _try_color(soup, kicked_back, base_style):
+def _try_color(soup, kicked_back, base_style, get_graph):
     #use index as id for each placemark
     pms = soup("Placemark")
     graph = get_graph(pms)
@@ -187,13 +187,13 @@ def _try_color(soup, kicked_back, base_style):
     
     return coloring
 
-def color(soup, base_style=BASE_STYLE):
+def color(soup, base_style=BASE_STYLE, get_graph=get_graph):
     kickbacks = []
     while 0 == len(kickbacks) or kickbacks[-1] not in kickbacks[:-1]:
         try:
-            return _try_color(soup, kickbacks, base_style)
+            return _try_color(soup, kickbacks, base_style, get_graph)
         except Clog as e:
             kickbacks.append(int(str(e)))
             print(str(e)+" kicked back")
     print("trying with no safeties")
-    return _try_color(soup, None, base_style)
+    return _try_color(soup, None, base_style, get_graph)
