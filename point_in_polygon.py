@@ -2,6 +2,9 @@
 
 from enum import Enum
 
+MAX = float('inf')
+MIN = -MAX
+
 class BoundaryException(Exception):
     """An exception raised when a point being tested sits on the
        boundary of a polygon. That fact defines the point's inside/outside
@@ -46,6 +49,15 @@ class BBox:
 
     def __bool__(self):
         return True
+    
+    def __str__(self):
+        return 'BBox(%s,%s,%s,%s)' % self
+    
+    def __repr__(self):
+        return str(self)
+    
+    def __iter__(self):
+        return iter([self.x, self.X, self.y, self.Y])
 
 class _Ring(list):
     """A class to represent an inner or outer boundary of a Polygon and to
@@ -170,7 +182,11 @@ def point_in_polygon(point, vertex_ring, edge_okay=False):
     except BoundaryException:
         return edge_okay
 
-_SORT_BY_AREA_VERTS = lambda x : 1 / x.area / len(x)
+def _SORT_BY_AREA_VERTS(ring):
+    try:
+        return 1 / ring.area / len(ring)
+    except ZeroDivisionError:
+        return MAX
 
 class Polygon:
     """A class to represent a polygon for GIS applications, with one or more
@@ -256,7 +272,7 @@ class Polygon:
            vertices."""
         if not self._bbox:
             self._bbox = sum((ring.bbox for ring in self._rings),
-                             BBox(0,0,0,0))
+                             BBox(MAX, MIN, MAX, MIN, illegal=True))
         return self._bbox
     
     @property
@@ -275,24 +291,36 @@ class Polygon:
         for ring in self._rings:
             for i in range(1, len(ring)):
                 yield ring[i-1:i+1]
-
-def from_shape(shape, info=None, edge_okay=False):
-    """Convert a shapefile.Shape into a Polygon"""
     
-    import shapefile
-    bounds = list(shape.parts) + [len(shape.points)]
-    outers = []
-    inners = []
-    for i in range(1, len(bounds)):
-        start, stop = bounds[i-1], bounds[i]
-        line = shape.points[start:stop]
+    @staticmethod
+    def from_shape(shape, info=None, edge_okay=False):
+        """Convert a shapefile.Shape into a Polygon"""
         
-        #value >= 0 indicates a counter-clockwise oriented ring
-        #Negative value -> outer boundary
-        a = shapefile.signed_area(line)
-        if a >= 0:
-            inners.append(line)
-        else:
-            outers.append(line)
+        import shapefile
+        bounds = list(shape.parts) + [len(shape.points)]
+        outers = []
+        inners = []
+        for i in range(1, len(bounds)):
+            start, stop = bounds[i-1], bounds[i]
+            line = shape.points[start:stop]
+            
+            #value >= 0 indicates a counter-clockwise oriented ring
+            #Negative value -> outer boundary
+            a = shapefile.signed_area(line)
+            if a >= 0:
+                inners.append(line)
+            else:
+                outers.append(line)
+        
+        return Polygon(outers, inners, info=info, edge_okay=edge_okay)
     
-    return Polygon(outers, inners, info=info, edge_okay=edge_okay)
+    @staticmethod
+    def from_kml(placemark, info=None, edge_okay=False):
+        """Convert a KML Placemark into a Polygon"""
+        import kml
+        geo = placemark.MultiGeometry or placemark.Polygon
+        outers = [kml.coords_from_tag(obi.coordinates)
+                  for obi in geo('outerBoundaryIs')]
+        inners = [kml.coords_from_tag(ibi.coordinates)
+                  for ibi in geo('innerBoundaryIs')]
+        return Polygon(outers, inners, info=info, edge_okay=edge_okay)
