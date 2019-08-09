@@ -19,6 +19,11 @@ class Graph(set):
         """`graph` : a set of vertices and of unordered pairs (frozensets) of
                      vertices"""
         super(Graph, self).__init__(graph)
+        
+        self.neighbors = {v:set() for v in self.vertices}
+        for a,b in self.edges:
+            neighbors[a].add(b)
+            neighbors[b].add(a)
     
     @property
     def vertices(self):
@@ -209,30 +214,14 @@ def _color_me_next(neighbors, vert_to_cosugre, coloring, supply, kicked_back):
     lcs = sortables[0][-2]
     return vertex, lcs
 
-#TODO move into Graph class
-def _get_neighbors(graph):
-    """Figure out who shares a border with who so we can get that info in O(1)
-       time when needed instead of O(len(graph)). Return that information as a
-       dict from vertex (index into a list) to a set of vertices.
-       
-       `graph` : A color_map.Graph of vertices and unordered pairs (frozensets)
-                 of adjacent vertices (edges)"""
-    neighbors = {v:set() for v in graph.vertices}
-    for edge in graph.edges:
-        a,b = edge
-        neighbors[a].add(b)
-        neighbors[b].add(a)
-    return neighbors
-
-def _post_check(graph, coloring, neighbors):
+def _post_check(graph, coloring):
     """Check for illegal color-sharing, print a warning if color-sharing across
        an edge is found, and print a description of the balance among the
        colors used
        
        `graph` : A color_map.Graph of vertices and unordered pairs (frozensets)
                  of adjacent vertices (edges)
-       `coloring` : A dict from vertex to the vertex's color
-       `neighbors` : A dict from vertex to a set of its neighbors"""
+       `coloring` : A dict from vertex to the vertex's color"""
     illegals = False
     for edge in graph.edges:
         a,b = edge
@@ -241,7 +230,7 @@ def _post_check(graph, coloring, neighbors):
             illegals = True
     if not illegals:
         print("No illegal color-sharing.")
-    print("Parity status (%d): %s"%(len(neighbors),
+    print("Parity status (%d): %s"%(len(graph.neighbors),
                                     str([sum(1
                                              for color in coloring.values()
                                              if color == x)
@@ -285,7 +274,7 @@ _counter = Counter()
 
 #Transform and return soup, add Style tag for each color, assign styleUrl to
 #each Placemark to map it to its assigned color.
-def _try_color(soup, pms, graph, neighbors, vert_to_cosugres,
+def _try_color(soup, pms, graph, vert_to_cosugres,
                kicked_back, base_style):
     """Try to color the map in `soup`. Raise a Clog if coloring becomes
        impossible on an uncolored vertex that has neighbors of all colors.
@@ -294,8 +283,6 @@ def _try_color(soup, pms, graph, neighbors, vert_to_cosugres,
        `pms` : A list of the Placemarks in `soup`
        `graph` : A color_map.Graph containing indices into `pms` (vertices) and
                  unordered pairs (frozensets) of those indices (edges)
-       `neighbors` : A dict from indices into `pms` (vertices) to sets of
-                     vertices that are neighbors of the associated key vertex
        `vert_to_cosugres` : A dict from indices into `pms` (vertices) to a
                             collection of frozensets of the vertices of complete
                             four-element subgraphs of `graph`
@@ -309,7 +296,7 @@ def _try_color(soup, pms, graph, neighbors, vert_to_cosugres,
     supply = Supply(len(pms)//len(COLORS))
     i = None
     for pm in pms:
-        i, legal_colors = _color_me_next(neighbors,
+        i, legal_colors = _color_me_next(graph.neighbors,
                                          vert_to_cosugres,
                                          coloring,
                                          supply,
@@ -319,7 +306,7 @@ def _try_color(soup, pms, graph, neighbors, vert_to_cosugres,
         color = min(most_supplied_legal_colors)
         coloring[i] = supply.take(color)
     
-    _post_check(graph, coloring, neighbors)
+    _post_check(graph, coloring)
     _modify_soup(soup, base_style, pms, coloring)
     return coloring
 
@@ -332,15 +319,14 @@ def _triplets(seq):
             for k in range(j+1, len(seq)):
                 yield [seq[x] for x in (i,j,k)]
 
-def _get_map_to_complete_subgraphs(graph, neighbors):
+def _get_map_to_complete_subgraphs(graph):
     """Return a dict from vertices (int) to a list of the complete subgraphs
        of four vertices (K4) of which that vertex is a part.
 
        `graph` : A color_map.Graph of vertices and unordered pairs (frozensets)
-                 of adjacent vertices (edges)
-       `neighbors` : A dict from vertex to a set of its neighbors"""
-    result = {v:[] for v in neighbors}
-    for v,n in neighbors.items():
+                 of adjacent vertices (edges)"""
+    result = {v:[] for v in graph.neighbors}
+    for v,n in graph.neighbors.items():
         if len(n) < 3:
             continue
         for a,b,c in _triplets(list(n)):
@@ -369,17 +355,16 @@ def color(soup, base_style=BASE_STYLE, get_graph=get_graph, pre_kick=None):
     kicked_back = [] if pre_kick is None else [pre_kick]
     pms = soup('Placemark')
     graph = Graph(get_graph(pms))
-    neighbors = _get_neighbors(graph)
-    vert_to_cosugres = _get_map_to_complete_subgraphs(graph, neighbors)
+    vert_to_cosugres = _get_map_to_complete_subgraphs(graph)
     while 0 == len(kicked_back) or kicked_back[-1] not in kicked_back[:-1]:
         try:
             return _try_color(
-                    soup, pms, graph, neighbors, vert_to_cosugres,
+                    soup, pms, graph, vert_to_cosugres,
                     kicked_back, base_style)
         except Clog as e:
             kicked_back.append(int(str(e)))
             print(str(e)+" kicked back")
     print("Coloring with no safeties")
     return _try_color(
-            soup, pms, graph, neighbors,
+            soup, pms, graph, 
             vert_to_cosugres, None, base_style)
