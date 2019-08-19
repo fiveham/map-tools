@@ -158,6 +158,36 @@ def open(filepath):
        returns it."""
     return formatted(BeautifulSoup(_OPEN(filepath), 'xml'))
 
+def save(soup, filepath):
+    """Saves the specified soup to the specified file."""
+    _OPEN(filepath, 'w').write(str(soup))
+
+def dock(soup, decimals):
+    """Reduce the number of digits in the decimal tail of floating point figures
+in <coordinates> tags to at most `decimals`. E.g. 10.111111111111 -> 10.11111
+`soup` : the kml file (bs4.BeautifulSoup) to be docked
+`decimals` : the max number of digits allowed"""
+    for coordinates_tag in soup("coordinates"):
+        text = coordinates_tag.string.strip()
+        chunks = text.split()
+        new_chunks = []
+        for chunk in chunks:
+            dims = chunk.split(',')
+            new_dims = []
+            for dim in dims:
+                try:
+                    i = dim.index('.')
+                except ValueError: # no period in dim
+                    new_dims.append(dim)
+                    continue
+                head = dim[:i]
+                tail = dim[i+1:]
+                docked_tail = tail[:decimals]
+                new_dims.append(head + '.' + docked_tail)
+            new_chunks.append(','.join(new_dims))
+        new_text = ' '.join(new_chunks)
+        coordinates_tag.string = new_text
+
 #From https://developers.google.com/maps/documentation/javascript/kmllayer
 KMLLAYER_TAG_SUPPORT = {
         'address'           : 'no',
