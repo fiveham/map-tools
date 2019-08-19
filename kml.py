@@ -21,6 +21,9 @@ Empty or self-terminating tags likewise do nothing in a KML document and
 should be removed."""
 
 from bs4.element import CData, NavigableString, Tag
+from bs4 import BeautifulSoup
+
+_OPEN = open
 
 REPLACE = {'<': '&lt;',
            '>': '&gt;',
@@ -143,6 +146,17 @@ def new_soup(name=None, src=_SOUP_STOCK):
         add(soup.Document, 'name').string = name
     format(soup)
     return soup
+
+def coords_from_tag(coordinates_tag, first_n_coords=2):
+    """Return a list of x,y or x,y,z tuples of points from the string of the
+       specified <coordinates> tag."""
+    return [tuple([float(dim) for dim in chunk.split(',')][:first_n_coords])
+            for chunk in coordinates_tag.string.strip().split()]
+
+def open(filepath):
+    """Opens the specified file as a KML document (bs4.BeautifulSoup) and
+       returns it."""
+    return formatted(BeautifulSoup(_OPEN(filepath), 'xml'))
 
 #From https://developers.google.com/maps/documentation/javascript/kmllayer
 KMLLAYER_TAG_SUPPORT = {
