@@ -4,9 +4,6 @@ scale."""
 
 from enum import Enum
 
-def index_by_cell(shapes, scale):
-    return NotImplemented
-
 def eq_err(a,b):
     """Return True if floats a and b are adjacent values, False otherwise."""
     return a == b or abs(a-b) / 2 + min(a,b) in (a,b)
