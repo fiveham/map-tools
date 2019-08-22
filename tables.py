@@ -44,6 +44,7 @@ def _check_delim(path_name, kwargs):
         else:
             raise ValueError('Delimiter `delim` not specified. Could not '
                              'assume based on file extension.')
+    return kwargs['delim']
 
 def read(path_name, *args, **kwargs):
     """Read a data table from a file specified by path_name.
@@ -61,15 +62,14 @@ def read(path_name, *args, **kwargs):
     return _read(path_name, args, kwargs)
 
 def write(table, path_name, *args, **kwargs):
-    _check_delim(path_name, kwargs)
-
-    qualifier = (kwargs['qualifier'] if 'qualifier' in kwargs
-                 else '')
-
+    delim = _check_delim(path_name, kwargs)
+    
+    qualifier = kwargs.get('qualifier', '')
+    
     with open(path_name, 'w') as into:
         columns = [a for a in table[0]]
-        into.write(delim.join(qualifier+a+qualifier for a in columns))
+        into.write(delim.join(qualifier+a+qualifier for a in columns)+'\n')
         for record in table:
-            into.write(delim.join(qualifier+str(record[key])+qualifier
-                                  for key in columns))
+            into.write(delim.join(qualifier + str(record[key]) + qualifier
+                                  for key in columns)+'\n')
     
