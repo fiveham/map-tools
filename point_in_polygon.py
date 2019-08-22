@@ -51,7 +51,7 @@ class BBox:
         return True
     
     def __str__(self):
-        return 'BBox(%s,%s,%s,%s)' % self
+        return 'BBox(%s, %s, %s, %s)' % tuple(self)
     
     def __repr__(self):
         return str(self)
