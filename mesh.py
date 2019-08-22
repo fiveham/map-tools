@@ -8,12 +8,6 @@ def eq_err(a,b):
     """Return True if floats a and b are adjacent values, False otherwise."""
     return a == b or abs(a-b) / 2 + min(a,b) in (a,b)
 
-def err_lt(a,b):
-    return not eq_err(a,b) and a < b
-
-def err_le(a,b):
-    return a < b or eq_err(a,b)
-
 class PerimeterElement(Enum):
     TOP          = ( 0,  1)
     TOP_RIGHT    = ( 1,  1)
