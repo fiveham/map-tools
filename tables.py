@@ -73,3 +73,107 @@ def write(table, path_name, *args, **kwargs):
             into.write(delim.join(qualifier + str(record[key]) + qualifier
                                   for key in columns)+'\n')
     
+class Table(list):
+    
+    """A glorified list of dicts
+       
+       Index records by the values of a certain column, then retrieve them
+       by calling or attributing the table with that cell content. Use brackets
+       or attributes to retrieve or set an entire column."""
+    
+    def __init__(self, records, **formats):
+        super(Table, self).__init__(records)
+        self.format(**formats)
+        self.__index = {}
+    
+    def format(self, **formats):
+        for record in self:
+            for column,_format in formats.items():
+                if column in record:
+                    record[column] = _format(record[column])
+    
+    def by(self, column, one_to_one=False, out=None):
+        result = {}
+        for record in self:
+            key = record[column]
+            if key not in result:
+                result[key] = []
+            result[key].append(record)
+            if one_to_one and len(result[key]) > 1:
+                raise ValueError("Couldn't make it one-to-one")
+        if out is not None:
+            for subtable in result.values():
+                for i in range(len(subtable)):
+                    subtable[i] = subtable[i][out]
+        if one_to_one:
+            for key,subtable in result.items():
+                result[key] = subtable[0]
+        return result
+    
+    def index_by(self, column, wrapper=(lambda x : x)):
+        """Index this table by the specified column so that the last (and
+           ostensibly sole) record with a given value in that column can be
+           retrieved by subscripting, attributing, and calling."""
+        self.__index = wrapper({record[column]:record for record in self})
+    
+    def __call__(self, key):
+        """Return the record indexed from `key`
+           
+           Example use:
+           state_table = Table(states_records)
+           state_table.index_by('fips_code')
+           nc_record = table('037')"""
+        return self.__index[key]
+    
+    def __getitem__(self, column):
+        """Either delegate retrieval of elements/slices to the superclass
+           or return a generator that iterates over the values in the specified
+           column of the table."""
+        
+        #If it's a valid index for a list, send to superclass
+        if isinstance(column, slice) or isinstance(column, int):
+            return super(Table, self).__getitem__(column)
+        
+        #otherwise send back the named column
+        return (record[column] for record in self)
+    
+    def __getattr__(self, name):
+
+        #if that's an existing column name, return the column
+        #(as a generator); otherwise try to return the record
+        #corresponding to that name in the index, if there is one.
+        if name in self[0]:
+            return self[name]
+        else:
+            return self.__index[name]
+    
+    def __setitem__(self, column, value):
+        
+        #If it's a valid index for a list, send to superclass
+        if isinstance(column, slice) or isinstance(column, int):
+            super(Table, self).__setitem__(column, value)
+        
+        if len(value) != len(self):
+            raise ValueError('length mismatch')
+        for record,element in zip(self, value):
+            record[column] = element
+        raise ValueError('Need an index, slice, or column heading')
+    
+    def __setattr__(self, name, value):
+        if name.endswith('__index'): #very dirty lazy hack TODO
+            super(Table, self).__setattr__(name, value)
+        else:
+            self[name] = value #outsource to __setitem__
+    
+    def __delitem__(self, column):
+        
+        #If it's a valid index for a list, send to superclass
+        if isinstance(column, slice) or isinstance(column, int):
+            super(Table, self).__setitem__(column, value)
+        
+        for record in self:
+            del record[column]
+    
+    def __delattr__(self, name):
+        del self[name]
+    
