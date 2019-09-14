@@ -1,6 +1,7 @@
 """A module for basic US Census Bureau data about states and their counties
 and county-equivalents. It relies on two text files for the data and loads
-the data from those files when it is imported."""
+the data from those files when it is imported: county_equiv.txt and 
+states.txt"""
 
 import tables
 
@@ -60,7 +61,7 @@ class State(TrickyDict):
         return f'State[{self.postal}, {self.fips}]'
 
 states = tables.Table(State(state)
-                      for state in tables.read('fips/states.txt'))
+                      for state in tables.read('states.txt'))
 
 #Index the state table by state fips code so that each county can
 #find its state quickly during this step
@@ -68,7 +69,7 @@ states.index_by('STATEFP', TrickyDict)
 
 #Create a record for each county and add it to a list of county records kept
 #by each state record
-for county in tables.read('fips/county_equiv.txt'):
+for county in tables.read('county_equiv.txt'):
     county = TrickyDict(county, {'code': 'COUNTYFP', 'fips': 'COUNTYFP'})
     state = states(county.STATEFP)
     state.counties.append(county)
