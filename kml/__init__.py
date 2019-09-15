@@ -1,4 +1,4 @@
-"""This is a helper for using bs4 to handle KML files."""
+"""A helper to handle KML files with bs4"""
 
 from bs4.element import CData, NavigableString, Tag
 from bs4 import BeautifulSoup
