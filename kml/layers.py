@@ -1,8 +1,209 @@
+"""Tools for preparing kml documents for use as KmlLayer objects in the
+   Google Maps Javascript API.
+
+   The script is named 'layers' so that if you just import kml, then this
+   script would be called kml.layers, which closely resembles the name of the
+   KmlLayer class."""
+
+def filter_kmllayer(soup, exceptions=STD_EXCEPTIONS):
+    """Transform a KML soup (bs4) to ensure compatability with the KmlLayer
+       class in the Google Maps Javascript API and to eliminate some
+       unnecessary elements that simply waste space, bandwidth, and time in
+       that context. Elements are removed or retained based on the value the
+       element's name maps to in `KMLLAYER_TAG_SUPPORT` and inverted if that
+       name is present in `exceptions`.
+       
+       `soup` : the KML soup (bs4) to be processed for use with the KmlLayer
+                class in the Google Maps Javascript API
+       `exceptions` : a list of KML tag names whose removal/retention status
+                      should be the opposite of what `KMLLAYER_TAG_SUPPORT`
+                      indicates.  Defaults to `STD_EXCEPTIONS`
+                      ('styleUrl', 'visibility', 'open')
+       
+       Iterate over every tag in `soup`. Remove it and all its descendants if
+       it is not supported (or if it is supported but is listed in
+       `exceptions`)."""
+    
+    actions = {
+         1: (lambda x : None),
+        -1: (lambda x : x.decompose())}
+    keep = 1
+    decomp = -1
+    for tag in soup(lambda thing : isinstance(thing,Tag)):
+        action = (decomp
+                  if (tag.name not in KMLLAYER_TAG_SUPPORT or
+                      KMLLAYER_TAG_SUPPORT[tag.name].lower().startswith('n'))
+                  else keep)
+        if tag.name in exceptions:
+            action *= -1
+        actions[action](tag)
+
+STD_EXCEPTIONS = ['styleUrl','visibility','open']
+
+#From https://developers.google.com/maps/documentation/javascript/kmllayer
+KMLLAYER_TAG_SUPPORT = {
+        'address'           : 'no',
+        'AddressDetails'    : 'no',
+        'Alias'             : 'N/A',
+        'altitude'          : 'no',
+        'altitudeMode'      : 'no',
+        'atom:author'       : 'yes',
+        'atom:link'         : 'yes',
+        'atom:name'         : 'yes',
+        'BalloonStyle'      : 'partially',
+        'begin'             : 'N/A',
+        'bgColor'           : 'no',
+        'bottomFov'         : 'N/A',
+        'Camera'            : 'no',
+        'Change'            : 'partially',
+        'color'             : 'partially',
+        'colorMode'         : 'no',
+        'cookie'            : 'no',
+        'coordinates'       : 'yes',
+        'Create'            : 'no',
+        'Data'              : 'yes',
+        'Delete'            : 'no',
+        'description'       : 'yes',
+        'displayMode'       : 'no',
+        'displayName'       : 'no',
+        'Document'          : 'partially',
+        'drawOrder'         : 'no',
+        'east'              : 'yes',
+        'end'               : 'N/A',
+        'expires'           : 'yes',
+        'ExtendedData'      : 'partially',
+        'extrude'           : 'no',
+        'fill'              : 'yes',
+        'flyToView'         : 'no',
+        'Folder'            : 'yes',
+        'geomColor'         : 'no',
+        'GeometryCollection': 'no',
+        'geomScale'         : 'no',
+        'gridOrigin'        : 'N/A',
+        'GroundOverlay'     : 'yes',
+        'h'                 : 'yes',
+        'heading'           : 'yes',
+        'in'                : 'yes',
+        'hotSpot'           : 'yes',
+        'href'              : 'yes',
+        'httpQuery'         : 'no',
+        'Icon'              : 'yes',
+        'IconStyle'         : 'yes',
+        'ImagePyramid'      : 'N/A',
+        'innerBoundaryIs'   : 'yes',
+        'ItemIcon'          : 'N/A',
+        'key'               : 'N/A',
+        'kml'               : 'yes',
+        'labelColor'        : 'no',
+        'LabelStyle'        : 'no',
+        'latitude'          : 'yes',
+        'LatLonAltBox'      : 'yes',
+        'LatLonBox'         : 'yes',
+        'leftFov'           : 'N/A',
+        'LinearRing'        : 'yes',
+        'LineString'        : 'yes',
+        'LineStyle'         : 'yes',
+        'Link'              : 'yes',
+        'linkDescription'   : 'no',
+        'linkName'          : 'no',
+        'linkSnippet'       : 'no',
+        'listItemType'      : 'N/A',
+        'ListStyle'         : 'no',
+        'Location'          : 'N/A',
+        'Lod'               : 'yes',
+        'longitude'         : 'yes',
+        'LookAt'            : 'no',
+        'maxAltitude'       : 'yes',
+        'maxFadeExtent'     : 'yes',
+        'maxHeight'         : 'N/A',
+        'maxLodPixels'      : 'yes',
+        'maxSessionLength'  : 'no',
+        'maxWidth'          : 'N/A',
+        'message'           : 'no',
+        'Metadata'          : 'no',
+        'minAltitude'       : 'yes',
+        'minFadeExtent'     : 'yes',
+        'minLodPixels'      : 'yes',
+        'minRefreshPeriod'  : 'no',
+        'Model'             : 'no',
+        'MultiGeometry'     : 'partially',
+        'name'              : 'yes',
+        'near'              : 'N/A',
+        'NetworkLink'       : 'yes',
+        'NetworkLinkControl': 'partially',
+        'north'             : 'yes',
+        'open'              : 'yes',
+        'Orientation'       : 'N/A',
+        'outerBoundaryIs'   : 'yes',
+        'outline'           : 'yes',
+        'overlayXY'         : 'no',
+        'Pair'              : 'N/A',
+        'phoneNumber'       : 'no',
+        'PhotoOverlay'      : 'no',
+        'Placemark'         : 'yes',
+        'Point'             : 'yes',
+        'Polygon'           : 'yes',
+        'PolyStyle'         : 'yes',
+        'range'             : 'yes',
+        'refreshInterval'   : 'partially',
+        'refreshMode'       : 'yes',
+        'refreshVisibility' : 'no',
+        'Region'            : 'yes',
+        'ResourceMap'       : 'N/A',
+        'rightFov'          : 'N/A',
+        'roll'              : 'N/A',
+        'rotation'          : 'no',
+        'rotationXY'        : 'no',
+        'Scale'             : 'N/A',
+        'scale'             : 'no',
+        'Schema'            : 'no',
+        'SchemaData'        : 'no',
+        'ScreenOverlay'     : 'yes',
+        'screenXY'          : 'no',
+        'shape'             : 'N/A',
+        'SimpleData'        : 'N/A',
+        'SimpleField'       : 'N/A',
+        'size'              : 'yes',
+        'Snippet'           : 'yes',
+        'south'             : 'yes',
+        'state'             : 'N/A',
+        'Style'             : 'yes',
+        'StyleMap'          : 'no',
+        'styleUrl'          : 'N/A', #supported in Placemark
+        'targetHref'        : 'partially',
+        'tessellate'        : 'no',
+        'text'              : 'yes',
+        'textColor'         : 'no',
+        'tileSize'          : 'N/A',
+        'tilt'              : 'no',
+        'TimeSpan'          : 'no',
+        'TimeStamp'         : 'no',
+        'topFov'            : 'N/A',
+        'Update'            : 'partially',
+        'Url'               : 'yes',
+        'value'             : 'yes',
+        'viewBoundScale'    : 'no',
+        'viewFormat'        : 'no',
+        'viewRefreshMode'   : 'partially',
+        'viewRefreshTime'   : 'yes',
+        'ViewVolume'        : 'N/A',
+        'visibility'        : 'partially',
+        'w'                 : 'yes',
+        'west'              : 'yes',
+        'when'              : 'N/A',
+        'width'             : 'yes',
+        'x'                 : 'yes',
+        'y'                 : 'yes'}
+
+# =========================================================================== #
+# ==== Splitting the map into regions to duck below the file size limits ==== #
+# =========================================================================== #
+
 #When a district map is too large to fit the filesize limits for KmlLayers,
 #the map may have to be split into two or more parts.  Even then, those parts
 #may need to be compressed and fetched as KMZ.
 
-#This script is for just those occasions.
+#This script is for those occasions.
 
 def _extrem_dir(pm, get_dim, comp):
     val = None
@@ -73,21 +274,12 @@ def _best_neighbor(pt,seq):
     qns = []
     for dim in range(len(pt)):
         for offset in (-1,1):
-            #neib = list(pt)
-            #neib[dim] = pt[dim] + offset
-            #neib = tuple(neib)
             neib = tuple(pt[i] + (offset if i==dim else 0)
                          for i in range(len(pt)))
             if not _is_legal(neib,seq):
                 continue
             qns.append((_quality(neib,seq),neib))
-    q,n = qns[0]
-    for i in range(len(qns)):
-        w,m = qns[i]
-        if w > q:
-            q = w
-            n = m
-    return n
+    return max(qns, key=(lambda a:a[0])) #only compare quality, not neib dims
 
 #Split the map defined in a particular KML file into a certain number of pieces
 #sequencing the Placemarks by mapping each one onto a number using key.
