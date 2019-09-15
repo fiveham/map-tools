@@ -1,5 +1,3 @@
-from bs4 import BeautifulSoup
-
 #When a district map is too large to fit the filesize limits for KmlLayers,
 #the map may have to be split into two or more parts.  Even then, those parts
 #may need to be compressed and fetched as KMZ.
@@ -97,6 +95,8 @@ def _best_neighbor(pt,seq):
 #preprocess accepts and returns a soup
 def split(kml_file_name, piece_count,
           preprocess=None, key=mid_east, measure=count):
+    
+    from bs4 import BeautifulSoup
     
     if preprocess is None:
         preprocess = lambda x : x
