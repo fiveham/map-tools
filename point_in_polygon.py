@@ -2,8 +2,8 @@
 
 from enum import Enum
 
-MAX = float('inf')
-MIN = -MAX
+_MAX = float('inf')
+_MIN = -_MAX
 
 class BoundaryException(Exception):
     """An exception raised when a point being tested sits on the
@@ -116,13 +116,13 @@ def _turning_sign(point, v1, v2):
         raise BoundaryException()
 
 class Quad(Enum):
-    I   = 0 # First quadrant, for x,y > 0,0
+    I   = 0 # First  quadrant, for x>0, y>0
     II  = 1 # Second quadrant, for x>0, y<0
-    III = 2 # Third quadrant, for x,y < 0,0
+    III = 2 # Third  quadrant, for x<0, y<0
     IV  = 3 # Fourth quadrant, for x<0, y>0
 
-ERR_RAD_DEG = 8.98315e-07 #in degrees. Along equator, about 10 centimeters
-ERR_RAD_DEG_SQ = ERR_RAD_DEG ** 2 #precomputed for reuse
+_ERR_RAD_DEG = 8.98315e-07 #in degrees. Along equator, about 10 centimeters
+_ERR_RAD_DEG_SQ = _ERR_RAD_DEG ** 2 #precomputed for reuse
 
 #Return the quadrant v is in with respect to point as the origin.
 def _orient(point, v):
@@ -132,7 +132,7 @@ def _orient(point, v):
     dx = vx - px
     dy = vy - py
     
-    if ERR_RAD_DEG_SQ > dx ** 2 + dy ** 2:
+    if _ERR_RAD_DEG_SQ > dx ** 2 + dy ** 2:
         raise BoundaryException()
     
     if dx * dy == 0: #along an axis
@@ -169,14 +169,16 @@ def _winding(point, ring):
 def point_in_polygon(point, vertex_ring, edge_okay=False):
     """Return True if the `point` is inside the `vertex_ring`, False otherwise.
 
-    ``point``: a tuple of numbers with at least two elements or any other
-               object subscriptable with 0 and 1 (for example, a dict
-               {1: -43, 50: 'a', 0: 91})
-    ``vertex_ring``: The vertices of the polygon. The first vertex must be
-                     repeated as the final element.
-    ``edge_okay``: Return this value if `point` is on the boundary of the
-                   `vertex_ring`. False by default."""
-
+    :param point: a tuple of numbers with at least two elements or any other
+    object subscriptable with 0 and 1 (for example, a dict
+    {1: -43, 50: 'a', 0: 91})
+    
+    :param vertex_ring: The vertices of the polygon. The first vertex must be
+    repeated as the final element.
+    
+    :param edge_okay: Return this value if `point` is on the boundary of the
+    `vertex_ring`. False by default."""
+    
     try:
         return point in _Ring(vertex_ring)
     except BoundaryException:
@@ -186,36 +188,26 @@ def _SORT_BY_AREA_VERTS(ring):
     try:
         return 1 / ring.area / len(ring)
     except ZeroDivisionError:
-        return MAX
+        return _MAX
 
 class Polygon:
-    """A class to represent a polygon for GIS applications, with one or more
-       outer boundaries and zero or more inner boundaries."""
+    """A polygon for GIS, with >=1 outer bounds and >=0 inner bounds."""
     
     def __init__(self, outers, inners=None, info=None, edge_okay=False):
-        """``outers``: a list of one or more outer boundaries
-           ``inners``: if specified, a list of zero or more inner boundaries
-           ``info``: Any data or metadata object the user wants.
-           ``edge_okay``: `point in self` will evaluate to this if `point` sits
-                          on a boundary. False by default."""
+        """Make a Polygon
+           
+           :param outers: a list of one or more outer boundaries
+
+           :param inners: if specified, a list of zero or more inner boundaries
+
+           :param info: Any data or metadata object the user wants.
+           
+           :param edge_okay: `point in self` will evaluate to this if `point`
+            sits on a boundary. False by default."""
         
-        assert len(outers) > 0, 'need at least one outer boundary'
+        if not len(outers):
+            raise ValueError('need at least one outer boundary')
         inners = inners or []
-        
-        #In case the caller sends outers=outer instead of outers=[outer]
-        #when the polygon has only one outer boundary
-        for variety in [outers, inners]:
-            assert isinstance(variety, list), ('`outers` and `inners` must be '
-                                               'of type `list`')
-            for boundary in variety:
-                assert isinstance(boundary, list), ('each boundary must be of '
-                                                    'type `list`')
-                assert len(boundary) > 0, 'a boundary may not be empty'
-                for pt in boundary:
-                    assert isinstance(pt, tuple), ('the vertices of a boundary '
-                                                   'must be of type `tuple`')
-                    assert len(pt) >= 2, ('each vertex on a boundary must have '
-                                          'at least two coordinates')
         
         self.outers = [_Ring(outer) for outer in outers]        
         self.inners = [_Ring(inner) for inner in inners]
@@ -244,16 +236,21 @@ class Polygon:
     
     def __contains__(self, point):
         try:
-            index_outer_around_point = next(iter(
+            #which outer boundary contains `point`?
+            outerbound_containing_point = next(iter(
                     i
                     for i in range(len(self.outers))
                     if point in self.outers[i]))
-            inners = self._out_to_in[index_outer_around_point]
+
+            #and which inner boundaries are inside that outer-bound?
+            inners = self._out_to_in[outerbound_containing_point]
+
+            #if `point` is in any inner boundary, then it's not in the Polygon
             return all(point not in inner
                        for inner in inners)
-        except StopIteration:
+        except StopIteration: #none of the outers contain `point`
             return False
-        except BoundaryException:
+        except BoundaryException: # `point` sits on an outer or inner bound
             return self.edge_okay
     
     @property
@@ -272,7 +269,7 @@ class Polygon:
            vertices."""
         if not self._bbox:
             self._bbox = sum((ring.bbox for ring in self._rings),
-                             BBox(MAX, MIN, MAX, MIN, illegal=True))
+                             BBox(_MAX, _MIN, _MAX, _MIN, illegal=True))
         return self._bbox
     
     @property
