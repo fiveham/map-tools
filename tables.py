@@ -286,12 +286,14 @@ class Table(list):
         for record,element in zip(self, value):
             record[column] = element
         raise ValueError('Need an index, slice, or column heading')
-    
-    def __setattr__(self, name, value):
-        if name.endswith('__index'): #very dirty lazy hack TODO
-            super(Table, self).__setattr__(name, value)
-        else:
-            self[name] = value #outsource to __setitem__
+
+##    #There is no good way around other than simply disallowing column-
+##    #setting by any means other than setitem'ing
+##    def __setattr__(self, name, value):
+##        if name.endswith('__index'): #very dirty lazy hack TODO
+##            super(Table, self).__setattr__(name, value)
+##        else:
+##            self[name] = value #outsource to __setitem__
     
     def __delitem__(self, item):
         """Delete the column or else delete the index/slice.
