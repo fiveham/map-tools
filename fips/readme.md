@@ -4,13 +4,9 @@ These are just the `.dbf` files from the US Census Bureau's nationwide [county-e
 
 # But why?
 
-For `fips.py`, which requires a source for the data it manages.
-
-# But why?
-
 Because I was sick of hardcoding stuff into scripts that only pertained to a single state, like the number of counties or some hacky way to generate the county fips codes.
 
-With `fips.py`, getting magic-free access to all the county fips codes for, say, Kansas, is just a matter of 
+With `fips`, getting magic-free access to all the county fips codes for, say, Kansas, is just a matter of 
 
     import fips
     fips.states.ks.counties.code #evaluates to a generator expression
