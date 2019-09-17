@@ -1,7 +1,6 @@
 """A module for basic US Census Bureau data about states and their counties
 and county-equivalents. It relies on two text files for the data and loads
-the data from those files when it is imported: county_equiv.txt and 
-states.txt"""
+the data from those files when it is imported."""
 
 import tables
 
@@ -85,30 +84,3 @@ for state in states:
     state.counties.index_by('COUNTYFP', TrickyDict)
 
 del state, county #no reason to leave those accessible
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
