@@ -1,4 +1,4 @@
-"""A helper to handle KML files with bs4"""
+"""A helper to handle KML files as bs4.BeautifulSoup XML documents."""
 
 from bs4.element import CData, NavigableString, Tag
 from bs4 import BeautifulSoup
@@ -259,3 +259,69 @@ def color(soup,
         add(style, ['PolyStyle', 'color']).string = colorize[int(i[-1])]
     
     return
+
+def spatial_index(soup, scale=16):
+    pms = soup('Placemark')
+    index = {}
+    for i in range(len(pms)):
+        pm = pms[i]
+        cells = _spatial_index(pm, scale=scale)
+        for cell in cells:
+            try:
+                pool = index[cell]
+            except KeyError:
+                pool = set()
+                index[cell] = pool
+            pool.add(i)
+    return index
+
+def _spatial_index(pm, scale=16):
+    try:
+        return next(iter(
+                f(tag, scale=scale)
+                for tag, f in ([pm.find(name), func]
+                               for name, func in _TAG_TO_FUNCTION.items())
+                if tag))
+    except StopIteration:
+        raise ValueError('Placemark has no Point, LineString, Polygon, or '
+                         'MultiGeometry')
+
+def _spdx_pg(pg, scale=16):
+    outer = coords_from_tag(pg.outerBoundaryIs.coordinates)
+    cells = _cells(outer, 2, scale=scale)
+    for ibi in pg('innerBoundaryIs'):
+        inner = coords_from_tag(ibi.coordinates)
+        hole_rim  = _cells(inner, 1, scale=scale)
+        hole_fill = _cells(inner, 2, scale=scale, boundary_cells=hole_rim)
+        cells -= (hole_fill - hole_rim)
+    return cells
+
+def _spdx_ls(ls, scale=16):
+    return _cells(coords_from_tag(ls.coordinates), 1, scale=scale)
+
+def _spdx_pt(pt, scale=16):
+    return _cells(coords_from_tag(pt.coordinates)[0], 0, scale=scale)
+
+def _spdx_mg(mg, scale=16):
+    cells = set()
+    for geom in mg(list(_TAG_TO_FUNCTION)):
+        cells.update(_TAG_TO_FUNCTION[geom.name](geom, scale=scale))
+    return cells
+
+def _cells(points, dim, scale=16, dim2func={}, **named):
+    import spindex as sx
+    
+    if not dim2func:
+        dim2func.update({0:sx.get_cell,
+                         1:sx.get_cells_1d,
+                         2:sx.get_cells_2d})
+    try:
+        func = dim2func[dim]
+    except KeyError:
+        raise ValueError('dim must be 0, 1, or 2')
+    return func(points, scale=scale, **named)
+
+_TAG_TO_FUNCTION = {'MultiGeometry': _spdx_mg,
+                    'Polygon'      : _spdx_pg,
+                    'LineString'   : _spdx_ls,
+                    'Point'        : _spdx_pt}
