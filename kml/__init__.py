@@ -171,7 +171,7 @@ def open(filepath):
     return formatted(BeautifulSoup(_OPEN(filepath), 'xml'))
 
 def save(soup, filepath):
-    """Saves `soup` to a file at `filepath`
+    """Save `soup` to a file at `filepath`
 
        `soup` : a KML document (bs4.BeautifulSoup)
        `filepath` : the name of the file to save"""
@@ -193,7 +193,7 @@ def dock(soup, decimals=6, dims=2):
                 for chunk in coordinates_tag.string.strip().split())
 
 def color(soup,
-          fuzzy=False,
+          fuzzy=False, scale=16,
           probe_factor=1000,
           colorize={1 : '7fa8d7b6',
                     2 : '7f065fb4',
@@ -201,20 +201,27 @@ def color(soup,
                     4 : '7f6bb2f6'}):
     """Color the polygons of the map with four colors.
        
-       `soup` : a KML document (bs4.BeautifulSoup)
-       `fuzzy` : If false, only use seamless side sharing (neighboring.seamless)
-                 to determine polygons' adjacency, otherwise use fuzzy side
-                 sharing (neighboring.fuzzy) as well
-       `probe_factor` : Divide the minimum distance between two adjacent
-                        vertices on any stokes boundary by this factor to get
-                        the length of the line segment crossing the midpoint of
-                        any stokes-remaining side used to empirically determine
-                        adjacency of polygons from `soup`
-       `colorize` : a dict from small ints (colors) to their aabbggrr color
-                    codes (without a # symbol)"""
+       :param soup: a KML document (bs4.BeautifulSoup)
+       
+       :param fuzzy: If false, only use seamless side sharing
+       (neighboring.seamless) to determine polygons' adjacency, otherwise use
+       fuzzy side sharing (neighboring.fuzzy) as well
+       
+       :param scale: The exponent of the power of two by which the earth's
+       surface is divided into cells to more efficiently do point-in-polygon
+       tests. Not used unless `fuzzy` is True.
+       
+       :param probe_factor: Divide the minimum distance between two adjacent
+       vertices on any stokes boundary by this factor to get the length of the
+       line segment crossing the midpoint of any stokes-remaining side used to
+       empirically determine adjacency of polygons from `soup`
+       
+       :param colorize: a dict from small ints (colors) to their aabbggrr
+       color codes (without a # symbol)"""
 
     #Only import these things inside this function so that if these resources
     #are not available, the rest of the script can still work
+    import color_graph
     from neighboring import fuzzy as _FUZZY
     from neighboring import seamless
     from point_in_polygon import Polygon
@@ -231,7 +238,7 @@ def color(soup,
     graph = seamless(pm_polygons)
 
     if fuzzy:
-        graph |= _FUZZY(pm_polygons, probe_factor=probe_factor)
+        graph |= _FUZZY(pm_polygons, probe_factor=probe_factor, scale=scale)
     
     #Obtain a coloring of that graph
     coloring = color_graph.color(graph)
@@ -265,20 +272,51 @@ def spatial_index(soup, scale=16):
     index = {}
     for i in range(len(pms)):
         pm = pms[i]
-        cells = _spatial_index(pm, scale=scale)
+        
+        #Find out what cells are needed to cover the Placemark
+        cells = _spatial_index(pm, scale)
+        
+        #add mappings from each of those cells to the current Placemark
+        #into the index
         for cell in cells:
             try:
                 pool = index[cell]
             except KeyError:
-                pool = set()
-                index[cell] = pool
+                index[cell] = pool = set()
             pool.add(i)
     return index
 
-def _spatial_index(pm, scale=16):
+def spatial_index_stats(soup, index):
+    stats = [len(v) for v in index.values()]
+    avg = sum(stats) / len(stats)
+    m,M = min(stats), max(stats)
+
+    max_index = len(stats) - 1
+    if max_index % 2 == 0:
+        med_index = max_index // 2
+        median = sorted(stats)[med_index]
+    else:
+        med_index_lo = max_index // 2
+        med_index_hi = med_index_lo + 1
+        median = set(sorted(stats)[med_index_lo:(med_index_hi + 1)])
+        if len(median) == 1:
+            median = median.pop()
+        else:
+            median = sorted(median)
+        #med_index = slice(med_index_lo, med_index_hi+1)
+        #median = sorted(stats)[med_index]
+
+    _range = M - m
+
+    stdev = (sum((stat - avg)**2 for stat in stats) / len(stats)) ** 0.5
+
+    return {'avg':avg, 'stdev':stdev, 'median':median, 'min':m, 'max':M,
+            'range':_range, 'data':stats}
+
+def _spatial_index(pm, scale):
     try:
         return next(iter(
-                f(tag, scale=scale)
+                f(tag, scale)
                 for tag, f in ([pm.find(name), func]
                                for name, func in _TAG_TO_FUNCTION.items())
                 if tag))
@@ -286,29 +324,29 @@ def _spatial_index(pm, scale=16):
         raise ValueError('Placemark has no Point, LineString, Polygon, or '
                          'MultiGeometry')
 
-def _spdx_pg(pg, scale=16):
+def _spdx_pg(pg, scale):
     outer = coords_from_tag(pg.outerBoundaryIs.coordinates)
-    cells = _cells(outer, 2, scale=scale)
+    cells = _cells(outer, 2, scale)
     for ibi in pg('innerBoundaryIs'):
         inner = coords_from_tag(ibi.coordinates)
-        hole_rim  = _cells(inner, 1, scale=scale)
-        hole_fill = _cells(inner, 2, scale=scale, boundary_cells=hole_rim)
+        hole_rim  = _cells(inner, 1, scale)
+        hole_fill = _cells(inner, 2, scale, boundary_cells=hole_rim)
         cells -= (hole_fill - hole_rim)
     return cells
 
-def _spdx_ls(ls, scale=16):
-    return _cells(coords_from_tag(ls.coordinates), 1, scale=scale)
+def _spdx_ls(ls, scale):
+    return _cells(coords_from_tag(ls.coordinates), 1, scale)
 
-def _spdx_pt(pt, scale=16):
-    return _cells(coords_from_tag(pt.coordinates)[0], 0, scale=scale)
+def _spdx_pt(pt, scale):
+    return _cells(coords_from_tag(pt.coordinates)[0], 0, scale)
 
-def _spdx_mg(mg, scale=16):
+def _spdx_mg(mg, scale):
     cells = set()
     for geom in mg(list(_TAG_TO_FUNCTION)):
-        cells.update(_TAG_TO_FUNCTION[geom.name](geom, scale=scale))
+        cells.update(_TAG_TO_FUNCTION[geom.name](geom, scale))
     return cells
 
-def _cells(points, dim, scale=16, dim2func={}, **named):
+def _cells(points, dim, scale, dim2func={}, **named):
     import spindex as sx
     
     if not dim2func:
