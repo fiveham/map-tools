@@ -9,10 +9,21 @@ cutting the east-west width and the north-south height in half."""
 
 _SCALE = 16
 
-def get_cell(point, scale=_SCALE):
+def set_scale(scale):
+    if not isinstance(scale, int):
+        raise TypeError('scale must be an int')
+    
+    if scale > 0:
+        global _SCALE
+        _SCALE = scale
+    else:
+        raise ValueError('scale must be > 0')
+
+def get_cell(point, scale=None):
+    scale = scale or _SCALE
     x_index, y_index = (int(latlng//widhei)
                         for latlng, widhei
-                        in zip(point, _Cell.dims(scale=scale)))
+                        in zip(point, _Cell.dims(scale)))
     return _Cell.get(x_index, y_index, scale)
 
 class _BBox:
@@ -70,7 +81,7 @@ class _BBox:
         x,X,y,Y = self
         return f'_BBox({x}, {X}, {y}, {Y})'
 
-def get_cells_2d(points, scale=_SCALE, boundary_cells=set()):
+def get_cells_2d(points, scale=None, boundary_cells=set()):
     """Return a set of the cells that intersect the polygon `points`.
 
        :param points: A list of points in the plane. The first point must be
@@ -85,9 +96,11 @@ def get_cells_2d(points, scale=_SCALE, boundary_cells=set()):
        avoid recomputing the hole's boundary cells.
        """
     from point_in_polygon import _Ring
+
+    scale = scale or _SCALE
     
     ring = _Ring(points)
-    cells = boundary_cells.copy() or get_cells_1d(points, scale=scale)
+    cells = boundary_cells.copy() or get_cells_1d(points, scale)
     
     #Build a solid rectangle of all the cells of the bounding box of `points`
     #not including the cells already assigned for return
@@ -143,7 +156,7 @@ def _passthru(cell, point_a, point_b):
         return sw == 0 and (nw == 0 or se == 0)
     return False
 
-def _grow_cells_line_segment(side, scale=_SCALE):
+def _grow_cells_line_segment(side, scale):
     """Find cells intersecting `side` (at `scale`) by linking neighbors.
        
        Begin growth from the cells containing the endpoints of `side`. Consider
@@ -158,7 +171,7 @@ def _grow_cells_line_segment(side, scale=_SCALE):
        northwest corner or the southeast corner, then the line intersects the
        cell."""
     (xa,ya),(xb,yb) = a,b = side
-    cell_a, cell_b = (get_cell(point) for point in side)
+    cell_a, cell_b = (get_cell(point, scale) for point in side)
     
     box = _BBox(*(sorted([xa, xb]) + sorted([ya, yb])))
     
@@ -222,14 +235,15 @@ def _grow_cells_line_segment(side, scale=_SCALE):
 ##        #cells.update(_Cell.get(X, list(range(min_Y, max_Y + 1)), scale)
 ##    return cells
 
-def get_cells_1d(points, scale=_SCALE):
+def get_cells_1d(points, scale=None):
     """Return a set of the cells that intersect the 1-D feature `points`.
        
        :param points: A sequence of at least two points
        """
+    scale = scale or _SCALE
     cells = set()
     for side in ([points[i-1], points[i]] for i in range(1, len(points))):
-        cells |= _grow_cells_line_segment(side, scale=scale)
+        cells |= _grow_cells_line_segment(side, scale)
     return cells
 
 get_cells_0d = get_cell
@@ -297,23 +311,23 @@ class _Cell:
 ##        return cells
     
     @staticmethod
-    def width(scale=_SCALE):
+    def width(scale):
         return 360 / 2**scale
     
     @staticmethod
-    def height(scale=_SCALE):
+    def height(scale):
         return 180 / 2**scale
     
     @staticmethod
-    def dims(scale=_SCALE):
-        yield _Cell.width( scale=scale)
-        yield _Cell.height(scale=scale)
+    def dims(scale):
+        yield _Cell.width( scale)
+        yield _Cell.height(scale)
 
     @staticmethod
     def point(instance, offset):
         return tuple((xy + offset) * widhei
                      for xy, widhei in zip(instance.indices,
-                                           _Cell.dims(scale=instance.scale)))
+                                           _Cell.dims(instance.scale)))
     
     @property
     def center(self):
