@@ -11,6 +11,40 @@ is the entries for a new record. Column names are record entries are delimited
 by the same delimiter (and can be made to contain the delimiter by using a
 text qualifier)."""
 
+def _anneal_by_qualifier(elements, qualifier, delim):
+    if qualifier:
+        while any(delimited_piece.startswith(qualifier)
+                  for delimited_piece in elements):
+            i = next(iter(i
+                          for i in range(len(elements))
+                          if elements[i].startswith(qualifier)))
+            j = next(iter(j
+                          for j in range(i, len(elements))
+                          if elements[j].endswith(qualifier)))
+            elements[i] = elements[i][  len(qualifier):]
+            elements[j] = elements[j][:-len(qualifier) ]
+            elements[i:j+1] = delim.join(elements[k]
+                                         for k in range(i, j+1))
+    return elements
+
+def _by_lines(line_source, delim, qualifier, translate):
+    columns = []
+    
+    for line in line_source:
+        
+        if line.endswith('\n'):
+            line = line[:-1]
+        
+        elements = _anneal_by_qualifier(
+                line.split(delim), qualifier, delim)
+        
+        if not columns:
+            columns = elements
+            continue
+        
+        yield {c:translate.get(c, (lambda x:x))(e)
+               for c, e in zip(columns, elements)}
+
 def _read(path_name, delim, qualifier, translate):
 
     """Read the file at `path_name` and return its content as a list of dicts.
@@ -23,44 +57,11 @@ def _read(path_name, delim, qualifier, translate):
        
        :param translate: dict from column name to a callable that transforms
        entries from that column"""
-    
-    def anneal_by_qualifier(elements, qualifier, delim):
-        if qualifier:
-            while any(delimited_piece.startswith(qualifier)
-                      for delimited_piece in elements):
-                i = next(iter(i
-                              for i in range(len(elements))
-                              if elements[i].startswith(qualifier)))
-                j = next(iter(j
-                              for j in range(i, len(elements))
-                              if elements[j].endswith(qualifier)))
-                elements[i] = elements[i][  len(qualifier):]
-                elements[j] = elements[j][:-len(qualifier) ]
-                elements[i:j+1] = delim.join(elements[k]
-                                             for k in range(i, j+1))
-        return elements
-    
-    delim     = kwargs['delim']
-    translate = kwargs.get('translate', {})
-    qualifier = kwargs.get('qualifier', None)
-    
+
+    #returning the generator would exit the with-clause and close the file
     with open(path_name, 'r') as outof:
-        columns = []
-        
-        for line in outof:
-            
-            if line.endswith('\n'):
-                line = line[:-1]
-            
-            elements = anneal_by_qualifier(
-                    line.split(delim), qualifier, delim)
-            
-            if not columns:
-                columns = elements
-                continue
-            
-            yield {c:translate.get(c, (lambda x:x))(e)
-                   for c, e in zip(columns, elements)}
+        for thing in _by_lines(outof, delim, qualifier, translate):
+            yield thing 
 
 def _check_delim(path_name, kwargs, by_extension={'.txt':'\t', '.csv':','}):
     
@@ -118,6 +119,15 @@ def read(path_name, *args, **kwargs):
     translate = kwargs.get('translate', {})
     
     return list(_read(path_name, delim, qualifier, translate))
+
+def parse(text, *args, **kwargs):
+    """Parse a table from text without needing to read a file."""
+    
+    delim     = kwargs.get('delim', '\t')
+    qualifier = kwargs.get('qualifier', '')
+    translate = kwargs.get('translate', {})
+
+    return list(_by_lines(text.split('\n'), delim, qualifier, translate))
 
 def _maybe_qualify(text, qualifier, delim):
     """Surround `text` with `qualifier`s if and only if `delim` is in text."""
