@@ -59,8 +59,9 @@ class State(TrickyDict):
     def __str__(self):
         return f'State[{self.postal}, {self.fips}]'
 
+import fips.states as STATES
 states = tables.Table(State(state)
-                      for state in tables.read('states.txt'))
+                      for state in tables.parse(STATES.table, delim='\t'))
 
 #Index the state table by state fips code so that each county can
 #find its state quickly during this step
@@ -68,7 +69,8 @@ states.index_by('STATEFP', TrickyDict)
 
 #Create a record for each county and add it to a list of county records kept
 #by each state record
-for county in tables.read('county_equiv.txt'):
+import fips.counties as COUNTIES
+for county in tables.parse(COUNTIES.table, delim='\t'):
     county = TrickyDict(county, {'code': 'COUNTYFP', 'fips': 'COUNTYFP'})
     state = states(county.STATEFP)
     state.counties.append(county)
@@ -83,4 +85,4 @@ for state in states:
     state.counties = tables.Table(state.counties)
     state.counties.index_by('COUNTYFP', TrickyDict)
 
-del state, county #no reason to leave those accessible
+del state, county, STATES, COUNTIES #no reason to leave those accessible
