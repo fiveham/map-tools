@@ -19,7 +19,7 @@ def _as_html(string):
         string = string.replace(k,v)
     return string
 
-def format(soup):
+def format(soup, no_empty=False):
     """Remove all leading and trailing whitespace on all strings in `soup`, 
        remove all empty or self-terminating tags, remove all kml: prefixes 
        from all tags, and ensure that all CDATA tags are properly wrapped in
@@ -56,7 +56,11 @@ def format(soup):
        
        Empty or self-terminating tags do nothing in a KML document. This
        function checks every tag and removes the empty/self-terminating
-       ones."""
+       ones.
+
+       :param soup: a KML document (bs4.BeautifulSoup)
+
+       :param no_empty: if True, remove empty tags. Default False."""
     
     strip = []
     destroy = []
@@ -79,9 +83,10 @@ def format(soup):
         d.extract()
     for s in strip:
         s.replace_with(s.strip())
-    for tag in soup(lambda thing : isinstance(thing,Tag) and
-                    len(list(thing.contents)) == 0):
-        tag.decompose()
+    if no_empty:
+        for tag in soup(lambda thing : isinstance(thing,Tag) and
+                        len(list(thing.contents)) == 0):
+            tag.decompose()
 
 def formatted(soup):
     """Format `soup` and return it. Convenience function wrapping `format`.
@@ -192,38 +197,49 @@ def dock(soup, decimals=6, dims=2):
                          for dim in chunk.split(',')[:dims])
                 for chunk in coordinates_tag.string.strip().split())
 
+_BLURPGRELLOW = {1 : 'http://maps.google.com/mapfiles/kml/paddle/blu-circle.png',
+                 2 : 'http://maps.google.com/mapfiles/kml/paddle/ylw-circle.png',
+                 3 : 'http://maps.google.com/mapfiles/kml/paddle/grn-circle.png',
+                 4 : 'http://maps.google.com/mapfiles/kml/paddle/purple-circle.png'}
+
+_GREEN_ORANGE = {1 : '7fa8d7b6',
+                 2 : '7f065fb4',
+                 3 : '7f4fa86a',
+                 4 : '7f6bb2f6'}
+
 def color(soup,
-          fuzzy=False, scale=16,
+          scale=None,
           probe_factor=1000,
-          colorize={1 : '7fa8d7b6',
-                    2 : '7f065fb4',
-                    3 : '7f4fa86a',
-                    4 : '7f6bb2f6'}):
+          colorize=_GREEN_ORANGE,
+          icons=_BLURPGRELLOW):
     """Color the polygons of the map with four colors.
        
        :param soup: a KML document (bs4.BeautifulSoup)
        
-       :param fuzzy: If false, only use seamless side sharing
-       (neighboring.seamless) to determine polygons' adjacency, otherwise use
-       fuzzy side sharing (neighboring.fuzzy) as well
-       
-       :param scale: The exponent of the power of two by which the earth's
-       surface is divided into cells to more efficiently do point-in-polygon
-       tests. Not used unless `fuzzy` is True.
+       :param scale: If specified, the scale of the lat-long mesh used to index
+       the space around the placemarks in `soup` when determining fuzzy
+       neighbors. If not specified, fuzzy neighbor relationship are not
+       assessed and only seamless neighbors are used to determine the coloring
+       graph. The scale if specified is the exponent of two in the denominator
+       by which the 360 degrees of width and 180 degrees of height of the
+       earth's surface are divided to determine the boundaries of the cells
+       of the indexing mesh.
        
        :param probe_factor: Divide the minimum distance between two adjacent
        vertices on any stokes boundary by this factor to get the length of the
        line segment crossing the midpoint of any stokes-remaining side used to
-       empirically determine adjacency of polygons from `soup`
+       empirically determine adjacency of polygons from `soup`. Used only for
+       fuzzy neighbor assessment.
        
        :param colorize: a dict from small ints (colors) to their aabbggrr
-       color codes (without a # symbol)"""
+       color codes (without a # symbol)
+
+       :param icons: a dict from colors to the urls of icons"""
 
     #Only import these things inside this function so that if these resources
     #are not available, the rest of the script can still work
     import color_graph
-    from neighboring import fuzzy as _FUZZY
-    from neighboring import seamless
+    from neighboring import fuzzy, seamless
     from point_in_polygon import Polygon
     
     #Get a list of the soup's Placemarks in Polygon form
@@ -237,11 +253,41 @@ def color(soup,
     #on opposite sides of sides that are not shared between polygons.
     graph = seamless(pm_polygons)
 
-    if fuzzy:
-        graph |= _FUZZY(pm_polygons, probe_factor=probe_factor, scale=scale)
+    if scale is not None:
+        graph |= fuzzy(pm_polygons, probe_factor=probe_factor, scale=scale)
     
     #Obtain a coloring of that graph
     coloring = color_graph.color(graph)
+    
+##    #Apply those color assignments as <styleUrl>s and build a set of all
+##    #applied color styles
+##    ids = set()
+##    for i in range(len(pms)):
+##        pm = pms[i]
+##        url = f'#color{coloring[i]}'
+##        (pm.styleUrl or add(pm, 'styleUrl')).string = url
+##        ids.add(url[1:]) #strip the # symbol off
+##    
+##    #Remove all existing Styles or StyleMaps with the same id/url as the
+##    #styleUrls applied in the previous step
+##    for style in soup(['Style', 'StyleMap']):
+##        if 'id' in style.attrs and style['id'] in ids:
+##            style.decompose()
+##    
+##    #Add a Style to the soup for each style id/url used
+##    for i in sorted(ids):
+##        style = soup.new_tag('Style')
+##        soup.Document.insert(0, style)
+##        style['id'] = i
+##        add(style, ['PolyStyle', 'color']).string = colorize[int(i[-1])]
+##        add(style, ['LineStyle', 'color']).string = '7fcccccc'
+##        add(style, ['IconStyle', 'Icon', 'href']).string = icons[int(i[-1])]
+
+    apply_color(soup, coloring, colorize=colorize, icons=icons)
+    return
+
+def apply_color(soup, coloring, colorize=_GREEN_ORANGE, icons=_BLURPGRELLOW):
+    pms = soup("Placemark")
     
     #Apply those color assignments as <styleUrl>s and build a set of all
     #applied color styles
@@ -255,15 +301,17 @@ def color(soup,
     #Remove all existing Styles or StyleMaps with the same id/url as the
     #styleUrls applied in the previous step
     for style in soup(['Style', 'StyleMap']):
-        if 'id' in style.attrs and style['id'] in ids:
+        if style.has_attr('id') and style['id'] in ids:
             style.decompose()
     
     #Add a Style to the soup for each style id/url used
-    for i in ids:
+    for i in sorted(ids):
         style = soup.new_tag('Style')
         soup.Document.insert(0, style)
         style['id'] = i
         add(style, ['PolyStyle', 'color']).string = colorize[int(i[-1])]
+        add(style, ['LineStyle', 'color']).string = '7fcccccc'
+        add(style, ['IconStyle', 'Icon', 'href']).string = icons[int(i[-1])]
     
     return
 
