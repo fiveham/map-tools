@@ -18,14 +18,20 @@ def _orientation(side):
     else:
         raise ValueError('side connects a vertex to itself: ' + str(side))
 
-class SideMinder:
-    """A class to keep track of directed edges (polygon sides) being added
-    together."""
+class _SideMinder:
+    """A class to keep track of the sums of many directed edges (polygon sides)."""
     
     def __init__(self):
         self.em = {}
     
     def add(self, side):
+        """Add `side` to the pile of directed sides already present.
+
+           If another side with the same points and opposite direction is
+           already counted, then the count for the corresponding undirected side
+           becomes zero and the corresponding key is removed from the underlying
+           dict altogether to save space."""
+        
         verts = frozenset(side)
         new_net_orientation = self.em.get(verts, 0) + _orientation(side)
         if new_net_orientation == 0:
@@ -40,20 +46,20 @@ class SideMinder:
     
     def net_sides(self):
         nets = set()
-        for fs, ori in self.em.items():
-            x,y = fs
-            alphab = (x,y)
-            baphla = (y,x)
-            if _orientation(alphab) == ori:
-                nets.add(alphab)
-            elif _orientation(baphla) == ori:
-                nets.add(baphla)
+        for frznst, orinttn in self.em.items():
+            x,y = frznst
+            points_alphabetical = (x,y)
+            points_alphabetical_reverse = (y,x)
+            if _orientation(points_alphabetical) == orinttn:
+                nets.add(points_alphabetical)
+            elif _orientation(points_alphabetical_reverse) == orinttn:
+                nets.add(points_alphabetical_reverse)
             else:
                 raise ValueError('impossible orientation situation')
         return nets
 
 def _cross_product(de1, de2):
-    """To be used with directed edges defined by their endpoints"""
+    """Return the cross product of the vectors defined by the directed edges."""
     va1,vb1 = de1
     va2,vb2 = de2
     
@@ -67,15 +73,16 @@ def _next_side(side, vertex_to_sides, remaining_net_sides):
              for a in vertex_to_sides[side[1]]['next']
              if a in remaining_net_sides]
     if len(nexts) != 1:
-        #dirty hack designed to work if original outer bounds curl ccw
+        #dirty hack to deal with some long-forgotten edge-case with bad data
         nexts.sort(key=(lambda x : _cross_product(side, x)))
     
     next_side = nexts[0]
-
+    
     remaining_net_sides.remove(next_side)
     return next_side
 
 def _sides(boundary):
+    """Generate pairs of adjacent elements from `boundary`."""
     old, new = None, None
     for vertex in boundary:
         old, new = new, vertex
@@ -85,15 +92,16 @@ def _sides(boundary):
 def stokes(polygons):
     """Add oriented sides so only a net boundary (usually exterior) survives.
 
+       Return a list of the net boundaries that are the sum of the directed
+       boundaries supplied by `polygons`. The curl scheme of the original
+       polygons is inherited by the return value.
        
-:param polygons: an iterable of outer and inner boundaries"""
+       :param polygons: an iterable of outer and inner boundaries"""
     
-    side_adder = SideMinder()
+    side_adder = _SideMinder()
     for polygon in polygons:
         for side in _sides(polygon):
             side_adder.add(side)
-##        for i in range(1, len(polygon)):
-##            side_adder.add(polygon[i-1:i+1])
     del polygons
     
     net_sides = side_adder.net_sides()
