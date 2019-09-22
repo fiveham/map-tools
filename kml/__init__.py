@@ -147,12 +147,14 @@ _SOUP_STOCK = ('<?xml version="1.0" encoding="UTF-8"?>'
                '</kml>')
 
 def new_soup(name=None, src=_SOUP_STOCK):
-    """Create and return a new KML soup (bs4). This is a convenience method to
-       avoid repetitive boilerplate.
+    """Create and return a new KML document (bs4.BeautifulSoup).
+
+       This is a convenience method to avoid repetitive boilerplate.
        
-       `name` : a name to be added to the `<Document>` tag of the soup as the
-                text of a `<name>` tag.
-       `src` : a string of valid KML text"""
+       :param name: a name for the kml document, added as the string of a `<name>`
+       tag as a direct child of the `<Document>` tag
+
+       :param src: a string of valid KML text"""
     
     soup = BeautifulSoup(src, 'xml')
     if name is not None:
@@ -161,35 +163,39 @@ def new_soup(name=None, src=_SOUP_STOCK):
     return soup
 
 def coords_from_tag(coordinates_tag, first_n_coords=2):
-    """Return a list of x,y or x,y,z tuples of points from the string of the
-       specified <coordinates> tag.
+    """Return a list of points from `coordinates_tag.string`.
 
-       `coordinates_tag` : a KML <coordinates> element"""
+       :param coordinates_tag: a KML <coordinates> element (bs4.element.Tag)
+
+       :param first_n_coords: only convert this many dimension terms per
+       point to floats for the returned list"""
+    
     return [tuple([float(dim) for dim in chunk.split(',')][:first_n_coords])
             for chunk in coordinates_tag.string.strip().split()]
 
 def open(filepath):
-    """Opens the specified file as a KML document (bs4.BeautifulSoup) and
-       returns it
+    """Open and return `file` as a KML document (bs4.BeautifulSoup).
 
-       `filepath` : the name of or relative path to a KML file"""
+       :param filepath: the name of or relative path to a KML file"""
     return formatted(BeautifulSoup(_OPEN(filepath), 'xml'))
 
 def save(soup, filepath):
-    """Save `soup` to a file at `filepath`
+    """Save `soup` to a file at `filepath`.
 
-       `soup` : a KML document (bs4.BeautifulSoup)
-       `filepath` : the name of the file to save"""
+       :param soup: a KML document (bs4.BeautifulSoup)
+       :param filepath: the name of the file to save"""
     _OPEN(filepath, 'w').write(str(soup))
 
 def dock(soup, decimals=6, dims=2):
-    """Reduce the number of digits in the decimal tail of floating point
-       figures in <coordinates> tags to at most `decimals`.
-       E.g. 10.123456789 -> 10.12345
+    """Limit the decimal part of floats in `<coordinates>` tags.
 
-       `soup` : a KML document (bs4.BeautifulSoup) or element
-       `decimals` : the max number of digits allowed after the integer part of
-                    a number"""
+       The function mainly exists to help limit the size of files to be used
+       with KmlLayers in the Google Maps JS API.
+       
+       :param soup: a KML document (bs4.BeautifulSoup) or element
+       (bs4.element.Tag)
+       :param decimals: the max number of digits allowed after the integer
+       part of a number"""
     import rounding
     for coordinates_tag in soup("coordinates"):
         coordinates_tag.string = ' '.join(
@@ -263,6 +269,19 @@ def color(soup,
     return
 
 def apply_color(soup, coloring, colorize=_GREEN_ORANGE, icons=_BLURPGRELLOW):
+    """Apply the coloring to the Placemarks in `soup` in order.
+
+       Each Placemark element in `soup` is given a styleUrl based on its
+       position in sequence in `soup` (its index in the list returned by
+       `soup('Placemark')`) and the color to which that position maps in
+       `coloring`. The string of the styleUrl is '#color' followed by the
+       number (1 through 4) to which the Placemark's position maps.
+
+       :param soup: a KML document (bs4.BeautifulSoup)
+       :param coloring: a dict from ints starting at 0 to colors (int 1 to 4)
+       :param colorize: a dict from color (int 1 to 4) to aabbggrr color
+       :param icons: dict from color (int 1 to 4) to icon url"""
+    
     pms = soup("Placemark")
     
     #Apply those color assignments as <styleUrl>s and build a set of all
@@ -292,6 +311,26 @@ def apply_color(soup, coloring, colorize=_GREEN_ORANGE, icons=_BLURPGRELLOW):
     return
 
 def spatial_index(soup, scale=16):
+    """Return a dict from rectangles on Earth to Placemarks that intersect them.
+       
+       If you have a large number of points and a large number of polygons and
+       you need to figure out which points are in which polygons, it can take
+       an extremely long time to do all the point-in-polygon tests required.
+       But by organizing the polygons according to the regions of space they
+       sit in the list of potential containing polygons for a given point can
+       be drastically reduced.
+
+       So this function cooks up a mesh laid over the earth, determines which
+       cells in that mesh intersect the area of each Placemark in `soup`, and
+       then uses a dict from cell to those intersecting Placemarks to quickly
+       narrow down the possible containing polygons.
+
+       :param soup: a KML document (bs4.BeautifulSoup)
+       
+       :param scale: the width/height of Earth in degrees (as in a Mercator
+       projection) is divided by two raised to `scale` to determine the width/
+       height of the cells by which this function indexes space"""
+    
     pms = soup('Placemark')
     index = {}
     for i in range(len(pms)):
@@ -310,7 +349,19 @@ def spatial_index(soup, scale=16):
             pool.add(i)
     return index
 
-def spatial_index_stats(soup, index):
+def spatial_index_stats(index):
+    """Compute and return statistics about the quality of a spatial index.
+
+       For each cell defined in the spatial index, that cell intersects and
+       maps to a certain number of Placemarks. This function gathers statistics
+       about those Placemarks-per-cell relationships.
+
+       Return the average, min, max, median, range, and standard deviation
+       (population-type, not sample) of the number of Placemarks intersected
+       per cell.
+
+       :param index: a dict from mesh cell to a set of ints >= 0 (index into
+       list of Placemarks), such as the return value of `spatial_index`"""
     stats = [len(v) for v in index.values()]
     avg = sum(stats) / len(stats)
     m,M = min(stats), max(stats)
@@ -327,8 +378,6 @@ def spatial_index_stats(soup, index):
             median = median.pop()
         else:
             median = sorted(median)
-        #med_index = slice(med_index_lo, med_index_hi+1)
-        #median = sorted(stats)[med_index]
 
     _range = M - m
 
@@ -338,6 +387,18 @@ def spatial_index_stats(soup, index):
             'range':_range, 'data':stats}
 
 def _spatial_index(pm, scale):
+    """Choose the appropriate implementing function to index the Placemark.
+
+       Defers to _spdx_mg, _spdx_pg, _spdx_ls, and _spdx_pt depending on
+       whether there's a MultiGeometry, Polygon, LineString, or Point in the
+       Placemark.
+
+       Raise ValueError if no such element is present.
+
+       :param pm: a `<Placemark>` element of a KML document
+       
+       :param scale: the exponent of the denominator of the width and height of
+       the indexing cells (in degrees)"""
     try:
         return next(iter(
                 f(tag, scale)
