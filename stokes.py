@@ -75,12 +75,25 @@ def _next_side(side, vertex_to_sides, remaining_net_sides):
     remaining_net_sides.remove(next_side)
     return next_side
 
+def _sides(boundary):
+    old, new = None, None
+    for vertex in boundary:
+        old, new = new, vertex
+        if old is not None:
+            yield old, new
+
 def stokes(polygons):
+    """Add oriented sides so only a net boundary (usually exterior) survives.
+
+       
+:param polygons: an iterable of outer and inner boundaries"""
     
     side_adder = SideMinder()
     for polygon in polygons:
-        for i in range(1, len(polygon)):
-            side_adder.add(polygon[i-1:i+1])
+        for side in _sides(polygon):
+            side_adder.add(side)
+##        for i in range(1, len(polygon)):
+##            side_adder.add(polygon[i-1:i+1])
     del polygons
     
     net_sides = side_adder.net_sides()
