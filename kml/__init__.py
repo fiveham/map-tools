@@ -259,30 +259,6 @@ def color(soup,
     #Obtain a coloring of that graph
     coloring = color_graph.color(graph)
     
-##    #Apply those color assignments as <styleUrl>s and build a set of all
-##    #applied color styles
-##    ids = set()
-##    for i in range(len(pms)):
-##        pm = pms[i]
-##        url = f'#color{coloring[i]}'
-##        (pm.styleUrl or add(pm, 'styleUrl')).string = url
-##        ids.add(url[1:]) #strip the # symbol off
-##    
-##    #Remove all existing Styles or StyleMaps with the same id/url as the
-##    #styleUrls applied in the previous step
-##    for style in soup(['Style', 'StyleMap']):
-##        if 'id' in style.attrs and style['id'] in ids:
-##            style.decompose()
-##    
-##    #Add a Style to the soup for each style id/url used
-##    for i in sorted(ids):
-##        style = soup.new_tag('Style')
-##        soup.Document.insert(0, style)
-##        style['id'] = i
-##        add(style, ['PolyStyle', 'color']).string = colorize[int(i[-1])]
-##        add(style, ['LineStyle', 'color']).string = '7fcccccc'
-##        add(style, ['IconStyle', 'Icon', 'href']).string = icons[int(i[-1])]
-
     apply_color(soup, coloring, colorize=colorize, icons=icons)
     return
 
