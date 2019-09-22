@@ -235,6 +235,10 @@ class Polygon:
         self._bbox = None
     
     def __contains__(self, point):
+        """Determine whether `point` is in this Polygon.
+
+           Return `self.edge_okay` if `point` is exactly on a boundary."""
+        
         try:
             #which outer boundary contains `point`?
             outerbound_containing_point = next(iter(
@@ -255,8 +259,7 @@ class Polygon:
     
     @property
     def _rings(self):
-        """Return a generator that iterates over all the boundaries of this
-           Polygon, both outer and inner."""
+        """Iterate over inner and outer boundaries."""
         for o in self.outers:
             yield o
         for i in self.inners:
@@ -264,6 +267,7 @@ class Polygon:
     
     @property
     def stokesable(self):
+        """Yield copies of all boundaries, with inner bounds reversed."""
         for o in self.outers:
             yield list(o)
         for i in self.inners:
@@ -271,9 +275,7 @@ class Polygon:
     
     @property
     def bbox(self):
-        """Return the overall outer bounding box of this Polygon encapsulating
-           the least and greatest x and y coordinates among all this Polygon's
-           vertices."""
+        """The least and greatest x and y coordinates of the vertices."""
         if not self._bbox:
             self._bbox = sum((ring.bbox for ring in self._rings),
                              BBox(_MAX, _MIN, _MAX, _MIN, illegal=True))
@@ -281,8 +283,9 @@ class Polygon:
     
     @property
     def vertices(self):
-        """Return a generator that iterates over all the vertices of this
-           Polygon. Since the first point of a boundary is duplicated as the
+        """Iterates over all the vertices of this Polygon.
+
+           Since the first point of a boundary is duplicated as the
            last point, all such points will occur twice."""
         for ring in self._rings:
             for vertex in ring:
@@ -290,15 +293,24 @@ class Polygon:
     
     @property
     def sides(self):
-        """Return a generator that iterates over all the sides of all the
-           boundaries (both inner and outer) of this Polygon."""
+        """Iterate over the sides of the outer and inner boundaries."""
         for ring in self._rings:
             for i in range(1, len(ring)):
                 yield ring[i-1:i+1]
     
     @staticmethod
     def from_shape(shape, info=None, edge_okay=False):
-        """Convert a shapefile.Shape into a Polygon"""
+        """Convert a shapefile.Shape into a Polygon.
+
+           Because inner and outer boundaries in the shapefile standard are
+           defined as such only implicity via their curling orientation,
+           distinguishing whether a given boundary is inner or outer requires
+           detecting its curling orientation, which is achieved via
+           `shapefile.signed_area`.
+
+           :param shape: a shapefile.Shape object
+           :param info: passed to __init__
+           :param edge_okay: passed to __init__"""
         
         import shapefile
         bounds = list(shape.parts) + [len(shape.points)]
@@ -320,7 +332,12 @@ class Polygon:
     
     @staticmethod
     def from_kml(placemark, info=None, edge_okay=False):
-        """Convert a KML Placemark into a Polygon."""
+        """Convert a KML Placemark into a Polygon.
+
+           :param placemark: a <Placemark> tag from a KML document
+           :param info: passed to __init__
+           :param edge_okay: passed to __init__"""
+        
         import kml, itertools
         geo = placemark.MultiGeometry or placemark.Polygon
         outers = [kml.coords_from_tag(obi.coordinates)
