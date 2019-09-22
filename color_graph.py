@@ -220,6 +220,8 @@ def color(graph, init_coloring=None):
     
     #meat
     coloring = dict(init_coloring) if init_coloring is not None else {}
+##    uncolored_vertices = vertices.copy()
+##    while uncolored_vertices:
     while any(coloring.get(v,0) == 0 for v in vertices):
         uncolored_vertices = [v for v in vertices if coloring.get(v,0) == 0]
         most_constrained_vertices = _find_constraint_and_filter(
@@ -235,7 +237,10 @@ def color(graph, init_coloring=None):
             try:
                 coloring = sidetrack(vertex, neighboring, coloring)
             except CannotColor:
+                print('Painted myself into a corner on vertex %s' % vertex)
                 break #out of while loop
+##            else:
+##                uncolored_vertices.remove(vertex)
         else:
             coloring[vertex] = color
     else: #Exiting normally rather than due to a problem
