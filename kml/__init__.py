@@ -88,30 +88,38 @@ def format(soup, no_empty=False):
                         len(list(thing.contents)) == 0):
             tag.decompose()
 
-def formatted(soup):
+def formatted(soup, **kwargs):
     """Format `soup` and return it. Convenience function wrapping `format`.
     
        `soup` : a KML document (bs4.BeautifulSoup)"""
     
-    format(soup)
+    format(soup, **kwargs)
     return soup
 
-def get_data(pm, name):
+def get_data(pm, name=None):
     """Find a `<Data>` or `<SimpleData>` element in `pm` having the specified
        `name` attribute and return the element's value. Raise ValueError if no
        such data element is found.
        
        `pm` : a KML element (bs4.element.Tag), preferably a Placemark
        `name` : value of the "name' attribute of a data tag in `pm`"""
-    if not isinstance(name, str) and hasattr(name, __iter__):
+    if name is None:
+        names = [d['name']
+                 for d in pm(lambda tag :
+                             tag.name in ('Data', 'SimpleData') and
+                             'name' in tag.attrs)]
+        values = get_data(pm, names)
+        pairs = list(zip(names, values))
+        dic = {x:y for x,y in pairs}
+        return dic if len(dic) == len(pairs) else pairs
+    elif not isinstance(name, str) and hasattr(name, '__iter__'):
         return [get_data(pm, n) for n in name]
     val = pm.find(lambda tag : tag.name in ('Data','SimpleData') and
                   'name' in tag.attrs and
                   tag['name'] == name)
     if val is not None:
-        return (val.value
-                if val.name == "Data"
-                else val).string.strip()
+        string = (val.value if val.name == 'Data' else val).string
+        return '' if string is None else string.strip()
     raise ValueError("Data/SimpleData not found: name='"+str(name)+"'")
 
 def add(tag, name, soup=None):
@@ -170,8 +178,24 @@ def coords_from_tag(coordinates_tag, first_n_coords=2):
        :param first_n_coords: only convert this many dimension terms per
        point to floats for the returned list"""
     
-    return [tuple([float(dim) for dim in chunk.split(',')][:first_n_coords])
+    return [tuple([float(dim)
+                   for dim in chunk.split(',')][:first_n_coords])
             for chunk in coordinates_tag.string.strip().split()]
+
+def coords_to_text(boundary):
+    """Return a text representation of the boundary or single point.
+       
+       :param boundary: a list of points or a single point
+       :returns: text like '2.8675309,-90.4000001 1.984,3.14'
+       
+       This is a convenience method for constructing kml elements as text to
+       be written directly to a file."""
+    try:
+        return ' '.join(','.join(str(dim)
+                                 for dim in point)
+                        for point in boundary)
+    except TypeError: #boundary is a point, not a list of points
+        return ','.join(str(dim) for dim in point)
 
 def open(filepath):
     """Open and return `file` as a KML document (bs4.BeautifulSoup).
@@ -203,27 +227,91 @@ def dock(soup, decimals=6, dims=2):
                          for dim in chunk.split(',')[:dims])
                 for chunk in coordinates_tag.string.strip().split())
 
-_BLURPGRELLOW = {1 : 'http://maps.google.com/mapfiles/kml/paddle/blu-circle.png',
-                 2 : 'http://maps.google.com/mapfiles/kml/paddle/ylw-circle.png',
-                 3 : 'http://maps.google.com/mapfiles/kml/paddle/grn-circle.png',
-                 4 : 'http://maps.google.com/mapfiles/kml/paddle/purple-circle.png'}
+def stokes(layer):
+    """Convenience method to check for open seams before coloring.
+
+       :param layer: a KML document or Folder (bs4.BeautifulSoup) describing a
+       single layer of polygons on the Earth's surface."""
+    import itertools, stokes
+    outers = [coords_from_tag(coord_tag)
+              for coord_tag in itertools.chain.from_iterable(
+                      obi('coordinates')
+                      for obi in layer('outerBoundaryIs'))]
+    inners = [coords_from_tag(coord_tag)
+              for coord_tag in itertools.chain.from_iterable(
+                      obi('coordinates')
+                      for obi in layer('innerBoundaryIs'))]
+    return stokes.stokes(itertools.chain(outers, inners))
+
+def stokes_visualize(stoked_bounds):
+    """Visualize complex stokes output as a kml document (bs4.BeautifulSoup).
+
+       :param stoked_bounds: boundaries from stokesing a set of boundaries
+       :returns: a kml document (bs4.BeautifulSoup) of the boundaries.
+
+       Use this function to visualize complex stokes output when there are
+       a lot of open or overlapping seams, polygons that share no sides with
+       the polygons around them that they obviously should share sides with,
+       or any other reason to need a human-style intuitive view of the bounds
+       that resulted from stokes.stokes or kml.stokes."""
+    soup = new_soup()
+    for bound in stoked_bounds:
+        pm = add(soup.Document, 'Placemark')
+        add(pm, 'name').string = str(len(bound))
+        add(pm,
+            ['LinearRing', 'coordinates']
+            ).string = coords_to_text(bound)
+    return soup
+
+def stokes_audit(layer, bounds):
+    """Map from each bound to the Placemarks that could have contributed to it.
+
+       Return a list of lists of Placemark elements in the same order as the
+       bounds in `bounds`.
+
+       :param layer: a kml document (bs4.BeautifulSoup) or Folder
+       :param bounds: a list of lists of points (tuple/list of 2 or 3 floats)"""
+    from stokes import _sides
+    import itertools
+    
+    pms = layer('Placemark')
+    
+    pm_sides = []
+    for pm in pms:
+        sides = set()
+        for coord_tag in pm('coordinates'):
+            sides.update(_sides(coords_from_tag(coord_tag)))
+        pm_sides.append(sides)
+    
+    bound_sides = [set(_sides(bound)) for bound in bounds]
+    
+    return [[pms[j]
+             for j in range(len(pms))
+             if pm_sides[j] & bound_sides[i]]
+            for i in range(len(bounds))]
 
 _GREEN_ORANGE = {1 : '7fa8d7b6',
                  2 : '7f065fb4',
                  3 : '7f4fa86a',
                  4 : '7f6bb2f6'}
 
-def color(soup,
+_BLURPGRELLOW = {
+        1 : 'http://maps.google.com/mapfiles/kml/paddle/blu-circle.png',
+        2 : 'http://maps.google.com/mapfiles/kml/paddle/ylw-circle.png',
+        3 : 'http://maps.google.com/mapfiles/kml/paddle/grn-circle.png',
+        4 : 'http://maps.google.com/mapfiles/kml/paddle/purple-circle.png'}
+
+def color(layer,
           scale=None,
           probe_factor=1000,
           colorize=_GREEN_ORANGE,
           icons=_BLURPGRELLOW):
     """Color the polygons of the map with four colors.
        
-       :param soup: a KML document (bs4.BeautifulSoup)
+       :param layer: a KML document or Folder (bs4.BeautifulSoup)
        
        :param scale: If specified, the scale of the lat-long mesh used to index
-       the space around the placemarks in `soup` when determining fuzzy
+       the space around the placemarks in `layer` when determining fuzzy
        neighbors. If not specified, fuzzy neighbor relationship are not
        assessed and only seamless neighbors are used to determine the coloring
        graph. The scale if specified is the exponent of two in the denominator
@@ -234,7 +322,7 @@ def color(soup,
        :param probe_factor: Divide the minimum distance between two adjacent
        vertices on any stokes boundary by this factor to get the length of the
        line segment crossing the midpoint of any stokes-remaining side used to
-       empirically determine adjacency of polygons from `soup`. Used only for
+       empirically determine adjacency of polygons from `layer`. Used only for
        fuzzy neighbor assessment.
        
        :param colorize: a dict from small ints (colors) to their aabbggrr
@@ -248,8 +336,8 @@ def color(soup,
     from neighboring import fuzzy, seamless
     from point_in_polygon import Polygon
     
-    #Get a list of the soup's Placemarks in Polygon form
-    pms = soup("Placemark")
+    #Get a list of the layer's Placemarks in Polygon form
+    pms = layer("Placemark")
     
     pm_polygons = [Polygon.from_kml(pms[i], info=i) for i in range(len(pms))]
     
@@ -265,24 +353,24 @@ def color(soup,
     #Obtain a coloring of that graph
     coloring = color_graph.color(graph)
     
-    apply_color(soup, coloring, colorize=colorize, icons=icons)
+    apply_color(layer, coloring, colorize=colorize, icons=icons)
     return
 
-def apply_color(soup, coloring, colorize=_GREEN_ORANGE, icons=_BLURPGRELLOW):
-    """Apply the coloring to the Placemarks in `soup` in order.
+def apply_color(layer, coloring, colorize=_GREEN_ORANGE, icons=_BLURPGRELLOW):
+    """Apply the coloring to the Placemarks in `layer` in order.
 
-       Each Placemark element in `soup` is given a styleUrl based on its
-       position in sequence in `soup` (its index in the list returned by
-       `soup('Placemark')`) and the color to which that position maps in
+       Each Placemark element in `layer` is given a styleUrl based on its
+       position in sequence in `layer` (its index in the list returned by
+       `layer('Placemark')`) and the color to which that position maps in
        `coloring`. The string of the styleUrl is '#color' followed by the
        number (1 through 4) to which the Placemark's position maps.
 
-       :param soup: a KML document (bs4.BeautifulSoup)
+       :param layer: a KML document or Folder (bs4.BeautifulSoup)
        :param coloring: a dict from ints starting at 0 to colors (int 1 to 4)
        :param colorize: a dict from color (int 1 to 4) to aabbggrr color
        :param icons: dict from color (int 1 to 4) to icon url"""
     
-    pms = soup("Placemark")
+    pms = layer("Placemark")
     
     #Apply those color assignments as <styleUrl>s and build a set of all
     #applied color styles
@@ -295,6 +383,10 @@ def apply_color(soup, coloring, colorize=_GREEN_ORANGE, icons=_BLURPGRELLOW):
     
     #Remove all existing Styles or StyleMaps with the same id/url as the
     #styleUrls applied in the previous step
+    soup = next(iter(parent
+                     for parent in layer.parents
+                     if (parent is not None) and (parent.parent is None)),
+                layer)
     for style in soup(['Style', 'StyleMap']):
         if style.has_attr('id') and style['id'] in ids:
             style.decompose()
@@ -309,6 +401,27 @@ def apply_color(soup, coloring, colorize=_GREEN_ORANGE, icons=_BLURPGRELLOW):
         add(style, ['IconStyle', 'Icon', 'href']).string = icons[int(i[-1])]
     
     return
+
+##def anneal_styles(soup):
+##    """Remove unused styles. Force Styles over StyleMaps. Share styles."""
+##    used_style_urls = set()
+##    for pm in soup('Placemark'):
+##        s = pm.styleUrl
+##        if s is None:
+##            continue
+##        u = s.string.strip()
+##        if u:
+##            used_style_urls.append(u[1:]) #trim # at start
+##    styles = soup(['Style', 'StyleMap'])
+##    used_styles = [style for style in styles if style['id'] in used_style_urls]
+##    for stylemap in [style for style in used_styles if style.name == 'StyleMap']:
+##        map_urls = {su.string.strip()[1:] for su in stylemap('styleUrl')}
+##        used_styles.extend(style
+##                           for style in styles
+##                           if (style['id'] in map_urls and
+##                               style not in used_styles))
+    
+    
 
 def spatial_index(soup, scale=16):
     """Return a dict from rectangles on Earth to Placemarks that intersect them.
