@@ -45,9 +45,8 @@ class TrickyDict(dict):
 
 class State(TrickyDict):
     
-    __alias = {'code'  :'STATEFP',
-               'fips'  :'STATEFP',
-               'postal':'STUSPS'}
+    __alias = {'FIPS'  :'STATEFP',
+               'POSTAL':'STUSPS'}
     
     def __init__(self, dic):
         super(State, self).__init__(dic, State.__alias)
@@ -71,7 +70,7 @@ states.index_by('STATEFP', TrickyDict)
 #by each state record
 import fips.counties as COUNTIES
 for county in tables.parse(COUNTIES.table, delim='\t'):
-    county = TrickyDict(county, {'code': 'COUNTYFP', 'fips': 'COUNTYFP'})
+    county = TrickyDict(county, {'FIPS': 'COUNTYFP'})
     state = states(county.STATEFP)
     state.counties.append(county)
     county.state = state
@@ -80,8 +79,6 @@ for county in tables.parse(COUNTIES.table, delim='\t'):
 states.index_by('STUSPS', TrickyDict)
 
 for state in states:
-    #states.alias(state.fips,      state.postal) # Cannot do multiple-index
-    #states.alias(int(state.fips), state.postal) # anymore
     state.counties = tables.Table(state.counties)
     state.counties.index_by('COUNTYFP', TrickyDict)
 
