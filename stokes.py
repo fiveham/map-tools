@@ -39,10 +39,10 @@ class _SideMinder:
         elif abs(new_net_orientation) == 1:
             self.em[verts] = new_net_orientation
         else:
-            raise ValueError(('net orientation outside allowed range (%s) '
-                              'This may mean the inner and outer '
+            raise ValueError(('net orientation of edge (%s)outside allowed '
+                              'range (%s) This may mean the inner and outer '
                               'boundaries curl in the same direction.') %
-                              new_net_orientation)
+                              (side, new_net_orientation))
     
     def net_sides(self):
         nets = set()
