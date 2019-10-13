@@ -7,6 +7,8 @@ if intersects of a lat-long-aligned grid covering the earth, which, at each
 mesh scale, subdivides the cells of the scale lower by 1 into 4 quarters by
 cutting the east-west width and the north-south height in half."""
 
+import geometry
+
 _SCALE = 16
 
 def set_scale(scale):
@@ -136,14 +138,8 @@ def get_cells_2d(points, scale=None, boundary_cells=set()):
             cells.update(_Cell.get(x,y,scale) for x,y in core)
     return cells
 
-def _cross_sign(a, b, c):
-    """Calculate the cross product of the vector from `a` to `b` times the
-       vector from `a` to `c`. Return the sign of the z component."""
-    x = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-    return -1 if x < 0 else 1 if x > 0 else 0
-
 def _passthru(cell, point_a, point_b):
-    signs = [_cross_sign(point_a, point_b, point_c)
+    signs = [geometry.cross_sign(point_a, point_b, point_c)
              for point_c in cell.corners]
     if 1 in signs and -1 in signs:
         return True
