@@ -44,7 +44,7 @@ def fuzzy(shapes, probe_factor=1000, scale=16):
     #needing the `shapes` to be hashable.
     import spindex
     cell_to_shapes = {}
-    for shape in shapes:
+    for i, shape in enumerate(shapes):
 
         #gather cells
         cells = set()
@@ -59,7 +59,7 @@ def fuzzy(shapes, probe_factor=1000, scale=16):
         for cell in cells:
             if cell not in cell_to_shapes:
                 cell_to_shapes[cell] = {}
-            cell_to_shapes[cell][shape.info] = shape
+            cell_to_shapes[cell][i] = shape
     else:
         cell_to_shapes = {cell:list(shape_dict.values())
                           for cell, shape_dict in cell_to_shapes.items()}
@@ -76,9 +76,10 @@ def fuzzy(shapes, probe_factor=1000, scale=16):
     for boundary in stoked:
         for i in range(1, len(boundary)):
             side = boundary[i-1:i+1]
-            shapes1, shapes2 = ({s.info
-                                 for s
-                                 in cell_to_shapes[spindex.get_cell(point)]
+            shapes1, shapes2 = ({j
+                                 for j,s
+                                 in enumerate(cell_to_shapes[
+                                         spindex.get_cell(point)])
                                  if point in s}
                                 for point in get_probe_points(side,
                                                               probe_radius))
@@ -94,28 +95,29 @@ def fuzzy(shapes, probe_factor=1000, scale=16):
 
 def seamless(shapes):
     #get the graph started with the vertices
-    graph = {i for i in range(len(shapes))}
+    graph = set(range(len(shapes)))
     
     #build a mapping from each polygon-side to a set of the polygons that
     #have that side (as int indices)
     side_to_shapes = {}
-    for shape in shapes:
+    for i, shape in enumerate(shapes):
         for side in shape.sides:
             key = frozenset(side)
             try:
                 extant = side_to_shapes[key]
             except KeyError:
-                side_to_shapes[key] = {shape.info}
+                side_to_shapes[key] = {i}
             else:
-                extant.add(shape.info)
+                extant.add(i)
     
     #Use that mapping to identify all pairs of neighboring polygons
     #Add each such pair to the graph as a frozenset of int indices
-    for pair in side_to_shapes.values():
+    for side, pair in side_to_shapes.items():
         if len(pair) == 1:
             continue
         elif len(pair) > 2:
-            raise Exception("one side maps to more than two shapes")
+            raise Exception(
+                    f"one side maps to more than two shapes: {side} -> {pair}")
         graph.add(frozenset(pair))
     
     return graph
