@@ -23,8 +23,8 @@ def _anneal_by_qualifier(elements, qualifier, delim):
                           if elements[j].endswith(qualifier)))
             elements[i] = elements[i][  len(qualifier):]
             elements[j] = elements[j][:-len(qualifier) ]
-            elements[i:j+1] = delim.join(elements[k]
-                                         for k in range(i, j+1))
+            elements[i:j+1] = [delim.join(elements[k]
+                                          for k in range(i, j+1))]
     return elements
 
 def _by_lines(line_source, delim, qualifier, translate):
@@ -123,7 +123,7 @@ def read(path_name, *args, **kwargs):
 def parse(text, *args, **kwargs):
     """Parse a table from text without needing to read a file."""
     
-    delim     = kwargs.get('delim', '\t')
+    delim     = kwargs.get('delim',     '\t')
     qualifier = kwargs.get('qualifier', '')
     translate = kwargs.get('translate', {})
 
@@ -177,6 +177,10 @@ class Table(list):
         super(Table, self).__init__(records)
         self.format(**formats)
         self.__index = {}
+
+    @property
+    def columns(self):
+        return list(self[0].keys())
     
     def format(self, **formats):
         """Transform the types of the entries in the table.
@@ -290,20 +294,12 @@ class Table(list):
         #If it's a valid index for a list, send to superclass
         if isinstance(column, slice) or isinstance(column, int):
             super(Table, self).__setitem__(column, value)
+            return
         
         if len(value) != len(self):
             raise ValueError('length mismatch')
         for record,element in zip(self, value):
             record[column] = element
-        raise ValueError('Need an index, slice, or column heading')
-
-##    #There is no good way around other than simply disallowing column-
-##    #setting by any means other than setitem'ing
-##    def __setattr__(self, name, value):
-##        if name.endswith('__index'): #very dirty lazy hack TODO
-##            super(Table, self).__setattr__(name, value)
-##        else:
-##            self[name] = value #outsource to __setitem__
     
     def __delitem__(self, item):
         """Delete the column or else delete the index/slice.
