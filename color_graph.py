@@ -239,8 +239,10 @@ def color(graph, init_coloring=None):
             except CannotColor:
                 print('Painted myself into a corner on vertex %s' % vertex)
                 break #out of while loop
-##            else:
+            else:
 ##                uncolored_vertices.remove(vertex)
+                color = min(_legal_colors(vertex, neighboring, coloring))
+                coloring[vertex] = color
         else:
             coloring[vertex] = color
     else: #Exiting normally rather than due to a problem
