@@ -97,7 +97,7 @@ class _Ring(list):
     
     def __contains__(self, point):
         return point in self.bbox and -4 == _winding(point, self)
-
+    
     def contains(self, point, edge_okay=False):
         try:
             return point in self
@@ -233,6 +233,7 @@ class Polygon:
             for v in self._out_to_in.values():
                 v.sort(key=_SORT_BY_AREA_VERTS)
         self._bbox = None
+        self.__hash = None
     
     def __contains__(self, point):
         """Determine whether `point` is in this Polygon.
@@ -256,6 +257,38 @@ class Polygon:
             return False
         except BoundaryException: # `point` sits on an outer or inner bound
             return self.edge_okay
+    
+    def __hash__(self):
+        if self.__hash is None:
+            self.__hash = hash((tuple(tuple(tuple(point)
+                                            for point in outer)
+                                      for outer in self.outers), 
+                                tuple(tuple(tuple(point)
+                                            for point in inner)
+                                      for inner in self.inners)))
+        return self.__hash
+    
+    def __eq__(self, other):
+        return self is other
+        #return self.outers == other.outers and self.inners == other.inners
+    
+    def spatial_index(self, scale):
+        import spindex
+        
+        cells = set()
+        for outer in self.outers:
+            cells.update(spindex.get_cells_2d(outer, scale=scale))
+        rims = [spindex.get_cells_1d(inner, scale=scale)
+                for inner in self.inners]
+        guts = [spindex.get_cells_2d(inner,
+                                     scale=scale,
+                                     boundary_cells=rims[i])
+                for i, inner in enumerate(self.inners)]
+        for gut in guts:
+            cells -= gut
+        for rim in rims:
+            cells.update(rim)
+        return cells
     
     @property
     def _rings(self):
