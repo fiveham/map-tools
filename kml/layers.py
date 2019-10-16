@@ -5,6 +5,10 @@
    script would be called kml.layers, which closely resembles the name of the
    KmlLayer class."""
 
+from bs4.element import Tag
+
+STD_EXCEPTIONS = ['styleUrl','visibility','open']
+
 def filter_kmllayer(soup, exceptions=STD_EXCEPTIONS):
     """Transform a KML soup (bs4) to ensure compatability with the KmlLayer
        class in the Google Maps Javascript API and to eliminate some
@@ -29,7 +33,7 @@ def filter_kmllayer(soup, exceptions=STD_EXCEPTIONS):
         -1: (lambda x : x.decompose())}
     keep = 1
     decomp = -1
-    for tag in soup(lambda thing : isinstance(thing,Tag)):
+    for tag in soup(lambda thing : isinstance(thing, Tag)):
         action = (decomp
                   if (tag.name not in KMLLAYER_TAG_SUPPORT or
                       KMLLAYER_TAG_SUPPORT[tag.name].lower().startswith('n'))
@@ -37,8 +41,6 @@ def filter_kmllayer(soup, exceptions=STD_EXCEPTIONS):
         if tag.name in exceptions:
             action *= -1
         actions[action](tag)
-
-STD_EXCEPTIONS = ['styleUrl','visibility','open']
 
 #From https://developers.google.com/maps/documentation/javascript/kmllayer
 KMLLAYER_TAG_SUPPORT = {
@@ -233,14 +235,14 @@ def mid_north(pm):
     return (lo + hi) / 2
 
 def max_east(pm):
-    return extrem_dir(pm, _east, max)
+    return _extrem_dir(pm, _east, max)
 
 def min_east(pm):
-    return extrem_dir(pm, _east, min)
+    return _extrem_dir(pm, _east, min)
 
 def mid_east(pm):
-    lo = min_north(pm)
-    hi = max_north(pm)
+    lo = min_east(pm)
+    hi = max_east(pm)
     return (lo + hi) / 2
 
 def count(pms):
@@ -285,11 +287,16 @@ def _best_neighbor(pt,seq):
 #sequencing the Placemarks by mapping each one onto a number using key.
 #measure determines the weight of a given sequence of Placemarks
 #preprocess accepts and returns a soup
-def split(kml_file_name, piece_count,
+def split(kml_file_name, piece_count, name=None, 
           preprocess=None, key=mid_east, measure=count):
     
     from bs4 import BeautifulSoup
+    import kml
     
+    if name is None:
+        name = kml_file_name[:-4]
+        while '/' in name:
+            name = name[name.index('/')+1:]
     if preprocess is None:
         preprocess = lambda x : x
     source = preprocess(BeautifulSoup(open(kml_file_name,'r'),'xml'))
@@ -305,10 +312,10 @@ def split(kml_file_name, piece_count,
     point = tuple(round((len(seq)/piece_count)*i)
                   for i in range(1,piece_count))
     assert _is_legal(point, seq)
-    other = _best_neighbor(point, seq)
-    while _quality(other,seq) > _quality(point,seq):
+    other_qual, other = _best_neighbor(point, seq)
+    while _quality(other, seq) > _quality(point, seq):
         point = other
-        other = _best_neighbor(point, seq)
+        other_qual, other = _best_neighbor(point, seq)
     assert _quality(other,seq) != _quality(point,seq)
 
     markers = [0]+list(point)+[len(seq)]
@@ -320,14 +327,56 @@ def split(kml_file_name, piece_count,
     soups = []
     for i in range(len(part_pms)):
         pm_part = part_pms[i]
-        soup = preprocess(BeautifulSoup(open(kml_file_name,'r'),'xml'))
+        soup = kml.open(kml_file_name)
         for pm in soup("Placemark"):
             pm.decompose()
         for pm in pm_part:
             soup.Document.append(pm)
-        if soup.Document.name is None:
+        if soup.Document.find('name') is None:
             soup.Document.insert(0, soup.new_tag('name'))
-        soup.Document.find('name').string = (kml_file_name[:-4] +
-                                             ("_split_%d" % i))
+        soup.Document.find('name').string = name + f'_split_{i}'
         soups.append(soup)
     return soups
+
+def _sort_points(tag, children):
+    """:param tag: a tag with multiple direct children that are either <Point>s
+       or proxies for single <Point>s.
+
+       :param children: child elements to be sorted north-to-south"""
+
+    children = sorted(
+            children,
+            key=(lambda tag : float(
+                    (tag if tag.name == 'Point' else tag.Point
+                     ).coordinates.string.strip().split(',')[1])),
+            reverse=True)
+    for child in children:
+        child.extract()
+        tag.append(child)
+
+def sort_points(soup):
+    """Sort the <Point>s in `soup` from north to south.
+
+       Change the order of the <Point> Placemarks in `soup` so that those
+       that appear later in the file are located further south than those that
+       come before. Ordering the points like that causes the point markers to
+       overlap more aesthetically, almost like feathers on a bird, instead of
+       messily. Tiny factors like that count in user-retention.
+
+       :param soup: a mutable KML document (bs4.BeautifulSoup)"""
+    
+    from collections import Counter
+    
+    for mg in soup(lambda tag : tag.name == 'MultiGeometry' and
+                                len(tag('Point', recursive=False)) > 1):
+        _sort_points(mg, mg('Point', recursive=False))
+    
+    pms_w_pt_in = soup(lambda tag : tag.name == 'Placemark' and bool(tag.Point))
+    parents_of_pms_w_pt_in = Counter(pm.parent for pm in pms_w_pt_in)
+    parents_of_multi_pmswptin = [k for k,v in parents_of_pms_w_pt_in.items()
+                                 if v > 1]
+    for parent in parents_of_multi_pmswptin:
+        _sort_points(parent,
+                     parent((lambda tag : tag.name == 'Placemark' and
+                                          bool(tag.Point)),
+                            recursive=False))
