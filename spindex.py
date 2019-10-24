@@ -8,6 +8,8 @@ mesh scale, subdivides the cells of the scale lower by 1 into 4 quarters by
 cutting the east-west width and the north-south height in half."""
 
 import geometry
+import itertools
+from canon import Canon
 
 _SCALE = 16
 
@@ -192,54 +194,17 @@ def _grow_cells_line_segment(side, scale):
     
     return _Cell._cache_back(core)
 
-##def _get_cells_line_segment(side, scale=_SCALE):
-##    """Return a set of the cells that intersect `side` in the plane.
-##
-##       :param side: A collection of two points in the plane
-##       """
-##    cells = set()
-##    cell_width, cell_height  = _Cell.dims(scale=scale)
-##
-##    #`side` is made of point `a` and point `b`, now explode those
-##    #into a zillion particles
-##    ((xa, ya), cellA, (Xa, Ya)), ((xb, yb), cellB, (Xb, Yb)) = (
-##            [p, c, c.indices]
-##            for p,c in ([point, get_cell(point, scale=scale)]
-##                        for point in sorted(side)))
-##    
-##    m = float('inf') if xb == xa else (yb - ya) / (xb - xa)
-##    for X in range(Xa, Xb+1): #for each column of cells the lineseg intersects
-##        min_x = max(xa,  X    * cell_width)
-##        max_x = min(xb, (X+1) * cell_width)
-##        try:
-##            min_y, max_y = sorted({m*(x_tr-xa)+ya for x_tr in {min_x, max_x}})
-##        except ValueError: #not enough values to unpack (2 0s or 2 infs)
-##            min_y, max_y = sorted([ya, yb])
-##        else:
-##            min_y = max(min_y, min(ya,yb))
-##            max_y = min(max_y, max(ya,yb))
-##        
-##        min_Y = int(min_y // cell_height)
-##        max_Y = int(max_y // cell_height)
-##        
-##        #if the maximum y height in the column is on a horizontal mesh line,
-##        #then the max Y cell index will be too large by 1
-##        if max_Y != min_Y and max_Y * cell_height == max_y:
-##            max_Y -= 1
-##        
-##        cells.update(_Cell.get(X, Y, scale) for Y in range(min_Y, max_Y + 1))
-##        #cells.update(_Cell.get(X, list(range(min_Y, max_Y + 1)), scale)
-##    return cells
-
 def get_cells_1d(points, scale=None):
     """Return a set of the cells that intersect the 1-D feature `points`.
        
        :param points: A sequence of at least two points
        """
     scale = scale or _SCALE
-    cells = set()
-    for side in ([points[i-1], points[i]] for i in range(1, len(points))):
-        cells |= _grow_cells_line_segment(side, scale)
+    
+    cells = set(itertools.chain.from_iterable(
+            _grow_cells_line_segment(side, scale)
+            for side in (points[i-1:i+1] for i in range(1, len(points)))))
+    
     return cells
 
 get_cells_0d = get_cell
@@ -265,46 +230,12 @@ class _Cell:
        a given task, interning instances this way may save memory on
        short-running tasks but may be a liability on long-running tasks.
        """
-    _INTERN_CACHE = {}
+    _INTERN_CACHE = Canon()
     
     @staticmethod
     def get(x_index, y_index, scale, cache=_INTERN_CACHE):
-        key = (x_index, y_index, scale)
-        try:
-            cached = cache[key]
-        except KeyError:
-            cached = _Cell(x_index, y_index, scale)
-            cache[key] = cached
-        return cached
-
-    @staticmethod
-    def _cache_back(cells):
-        """Cache uncached cells; replace others with canonical cached version.
-
-           Return a new set equal to `cells` in which every cell is replaced
-           by its corresponding instance from the cache or left alone if it
-           had no corresponding cache instance. Uncached cells, when
-           encountered, are added to the cache.
-
-           :param cells: a set of _Cell instances"""
-        result = set()
-        for cell in cells:
-            key = cell.key
-            try:
-                c = _Cell._INTERN_CACHE[key]
-            except KeyError:
-                _Cell._INTERN_CACHE[key] = c = cell
-            result.add(c)
-        return result
-    
-##    @staticmethod
-##    def gets(x_indices, y_indices, scale):
-##        """Just like `get` but it takes lists of indices instead of individual
-##           indices."""
-##        cells = {_Cell._INTERN_CACHE.get((x,y,scale), _Cell(x,y,scale))
-##                 for x,y in zip(x_indices, y_indices)}
-##        _Cell._INTERN_CACHE.update(cell.key:cell for cell in cells)
-##        return cells
+        return _INTERN_CACHE.single(
+                _Cell(x_index, y_index, scale))
     
     @staticmethod
     def width(scale):
@@ -318,7 +249,7 @@ class _Cell:
     def dims(scale):
         yield _Cell.width( scale)
         yield _Cell.height(scale)
-
+    
     @staticmethod
     def point(instance, offset):
         return tuple((xy + offset) * widhei
@@ -358,14 +289,12 @@ class _Cell:
         yield (x,y)
     
     def __init__(self, x_index, y_index, scale):
-        self._hash = None
         self.x = x_index
         self.y = y_index
         self.scale = scale
+        self._hash = hash((self.x, self.y, self.scale))
     
     def __hash__(self):
-        if self._hash is None:
-            self._hash = hash((self.x, self.y, self.scale))
         return self._hash
     
     def __eq__(self, that):
@@ -380,7 +309,7 @@ class _Cell:
         return f'_Cell({self.x}, {self.y}, {self.scale})'
     
     def __contains__(self, point):
-        (x,y),(X,Y) = (_Cell.point(self, off) for off in (0.0,1.0))
+        (x,y),(X,Y) = (_Cell.point(self, off) for off in (0.0, 1.0))
         a,b = point
         return X > a and Y > b and a >= x and b >= y
     
