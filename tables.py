@@ -173,11 +173,19 @@ class Table(list):
        superclass in those cases.
        """
     
+    @staticmethod
+    def _read(filename):
+        return Table(read(filename))
+    
+    @staticmethod
+    def read(filename):
+        return _read(filename)
+    
     def __init__(self, records, **formats):
         super(Table, self).__init__(records)
         self.format(**formats)
         self.__index = {}
-
+    
     @property
     def columns(self):
         return list(self[0].keys())
@@ -284,8 +292,8 @@ class Table(list):
         #if that's an existing column name, return the column
         #(as a generator); otherwise try to return the record
         #corresponding to that name in the index, if there is one.
-        if name in self[0]:
-            return self[name]
+        if name in self.columns:
+            return self.__getitem__(name)
         else:
             return self.__index[name]
     
