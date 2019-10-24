@@ -23,8 +23,8 @@ def _legal_colors(vertex, neighboring, coloring):
        `neighboring` : a dict from vertex (int) to a set of the vertices that
                        share an edge with that key
        `coloring` : a dict from vertex (int) to color (int 1-4)"""
-    return COLORS - {coloring.get(neighbor,0)
-                     for neighbor in neighboring[vertex]}
+    return COLORS - {coloring.get(neighbor, 0)
+                     for neighbor in neighboring.get(vertex, [])}
 
 def vertices_edges_neighboring(graph):
     """Return the vertices, edges, and vertex-to-neighbors dict based on
