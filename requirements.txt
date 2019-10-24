@@ -1,2 +1,4 @@
-pip install pyshp
 pip install bs4
+pip install pyproj
+pip install pyshp
+pip install requests
