@@ -56,7 +56,7 @@ def hypothetical_coloring(coloring, what_if):
        `what_if` : a frozenset of (vertex,color) tuples; this could be read as
                    "What if this vertex were this color and that vertex were
                    that color and ...?" """
-    recolor = dict(coloring)
+    recolor = coloring.copy()
     for v,c in what_if:
         recolor[v] = c
     return recolor
@@ -126,6 +126,12 @@ def _chain_shift(vertex, neighboring, init_coloring):
             subgraph = chetwork(
                     neighbor, color, other, neighboring, init_coloring)
             if len(subgraph & neighboring[vertex]) == 1:
+                # TODO does it really need to only contain exactly 1 neighbor?
+                # or is it possible to hold 2 or more neighbors as long as all
+                # neighbors in the chetwork are the same color?
+                # That would be:
+                # if len({init_coloring[x]
+                #         for x in subgraph & neighboring[vertex]}) == 1:
                 options.add((subgraph, frozenset([color, other])))
     
     what_ifs = [frozenset((vertex, (color1
@@ -220,8 +226,7 @@ def color(graph, init_coloring=None):
     
     #meat
     coloring = dict(init_coloring) if init_coloring is not None else {}
-##    uncolored_vertices = vertices.copy()
-##    while uncolored_vertices:
+    
     while any(coloring.get(v,0) == 0 for v in vertices):
         uncolored_vertices = [v for v in vertices if coloring.get(v,0) == 0]
         most_constrained_vertices = _find_constraint_and_filter(
@@ -239,12 +244,8 @@ def color(graph, init_coloring=None):
             except CannotColor:
                 print('Painted myself into a corner on vertex %s' % vertex)
                 break #out of while loop
-            else:
-##                uncolored_vertices.remove(vertex)
-                color = min(_legal_colors(vertex, neighboring, coloring))
-                coloring[vertex] = color
-        else:
-            coloring[vertex] = color
+            color = min(_legal_colors(vertex, neighboring, coloring))
+        coloring[vertex] = color
     else: #Exiting normally rather than due to a problem
         for vertex in neighboring:
             legals = _legal_colors(vertex, neighboring, coloring)
