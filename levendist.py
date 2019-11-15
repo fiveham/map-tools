@@ -1,4 +1,15 @@
+"""A pure-python Levenshtein distance calculator."""
+
 def levendist(s, t, matrix=False, subst_cost=1):
+    """Return the Levenshtein distance between s and t.
+
+       :param s: a string
+       :param t: a string
+       :param matrix: if True, return the distance matrix for partial edits
+       :param subst_cost: the distance travelled by substituting one char for
+       another
+       :returns the distance or a matrix of distances (dict[int, int])"""
+    
     if not matrix:
         if s == t:
             return 0
