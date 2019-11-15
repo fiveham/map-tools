@@ -1,9 +1,17 @@
-"""A module to determine the connectedness (adjacency) of polygons in a plane.
-   This is intended for GIS purposes."""
+"""A module to determine the adjacency of polygons in a plane.
 
-#The function poops out the offside probe points
-#for the given `side` and probe radius
+   For the most part, this is meant to help color maps."""
+
 def get_probe_points(side, probe_radius):
+    """Return two points offset from the midpoint of side by a small distance.
+       
+       Use these two points for point-in-polygon tests to determine which
+       neighboring shapes are adjacent when the shapes of a map don't all
+       match up perfectly. 
+       
+       :param side: a tuple of two points (each is a tuple of two floats)
+       :param probe_radius: distance between side midpoint and a probe point
+       :returns: two points (2-tuple of float)"""
     
     #unpack the side and then unpack its two points
     (x1, y1), (x2, y2) = side
@@ -20,6 +28,21 @@ def get_probe_points(side, probe_radius):
         return (xm + x, ym + m*x), (xm - x, ym - m*x)
 
 def fuzzy(shapes, probe_factor=1000, scale=16):
+    """Identify adjacencies not detected by `seamless`.
+
+       Identify the net boundaries among the shapes, for each side of each
+       boundary get that side's probe points and use point-in-polygon tests to
+       determine which shapes are neighbors.
+
+       In some maps, such as a certain map of Mississippi's VTDs, the polygons
+       do not fit together seamlessly, which makes it hard to color the map
+       because it's harder to generate the underlying adjacency graph.
+
+       :param shapes: a list of Polygons
+       :param probe_factor: probe radius is side length divided by twice this
+       :param scale: chop earth into 2**scale chunks to limit point-in-polygon
+       tests
+       :returns: a set of ints (vertex) and frozensets of two ints (edges)"""
     
     #Isolate the non-seamless boundaries
     from stokes import stokes
@@ -94,6 +117,11 @@ def fuzzy(shapes, probe_factor=1000, scale=16):
     return graph
 
 def seamless(shapes):
+    """Return an adjacency graph assuming the shapes have no gaps or overlaps.
+
+       :param shapes: a list of Polygons
+       :returns: a set of ints (vertex) and frozensets of two ints (edges)"""
+    
     #get the graph started with the vertices
     graph = set(range(len(shapes)))
     
