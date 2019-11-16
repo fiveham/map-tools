@@ -169,12 +169,12 @@ def add(tag, name, soup=None):
         else:
             try:
                 soup = next(iter(parent for parent in tag.parents
-                                 if parent.parent is None))
+                                 if parent.name == '[document]'))
             except StopIteration:
                 raise TypeError(
                         'soup cannot be None if tag is not part of a soup')
     
-    if isinstance(name, list):
+    if isinstance(name, (list, tuple)):
         pointer = tag
         for n in name:
             pointer = add(pointer, n, soup=soup)
