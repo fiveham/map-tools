@@ -1,7 +1,15 @@
 """A helper to handle KML files as bs4.BeautifulSoup XML documents."""
 
+import itertools
+import color_graph
+import rounding
+import spindex as sx
+import stokes
 from bs4.element import CData, NavigableString, Tag
 from bs4 import BeautifulSoup
+from neighboring import fuzzy, seamless
+from point_in_polygon import Polygon
+from stokes import _sides
 
 _OPEN = open
 
@@ -13,7 +21,9 @@ def _as_html(string):
     """Return a copy of `string` where all less-thans, greater-thans, 
        and ampersands are replaced by their HTML character entity equivalents.
        
-       `string` : a string"""
+       :param string: a string
+       :returns: a string where certain chars are replaced by html entity codes
+       """
     
     for k,v in REPLACE.items():
         string = string.replace(k,v)
@@ -60,7 +70,10 @@ def format(soup, no_empty=False):
 
        :param soup: a KML document (bs4.BeautifulSoup)
 
-       :param no_empty: if True, remove empty tags. Default False."""
+       :param no_empty: if True, remove empty tags. Default False.
+
+       :returns: None
+       """
     
     strip = []
     destroy = []
@@ -91,7 +104,10 @@ def format(soup, no_empty=False):
 def formatted(soup, **kwargs):
     """Format `soup` and return it. Convenience function wrapping `format`.
     
-       `soup` : a KML document (bs4.BeautifulSoup)"""
+       :param soup: a KML document (bs4.BeautifulSoup)
+       :param no_empty: (optional, default False) remove empty tags if True
+       :returns: `soup`
+       """
     
     format(soup, **kwargs)
     return soup
@@ -101,8 +117,11 @@ def get_data(pm, name=None):
        `name` attribute and return the element's value. Raise ValueError if no
        such data element is found.
        
-       `pm` : a KML element (bs4.element.Tag), preferably a Placemark
-       `name` : value of the "name' attribute of a data tag in `pm`"""
+       :param pm: a KML element (bs4.element.Tag), preferably a Placemark
+       :param name: value of the "name' attribute of a data tag in `pm`, or
+       None to return all data as a dict
+       :returns: the Placemark's data with the specified `name` or a dict of
+       all the Placemark's data"""
     if name is None:
         names = [d['name']
                  for d in pm(lambda tag :
@@ -123,19 +142,38 @@ def get_data(pm, name=None):
     raise ValueError("Data/SimpleData not found: name='"+str(name)+"'")
 
 def add(tag, name, soup=None):
-    """Create a new `name` tag and append it to `tag`. If `name` is a list,
-       append the first name to `tag`, append the second name to the first, and
-       so on, which is useful for creating Placemarks, since their geometry
-       often looks like <Polygon><outerBoundaryIs><LinearRing><coordinates>...
+    """Append a new `name` tag to `tag` and return the new tag.
+
+       If `name` is a list, call this function to add the first name to `tag,
+       then call this function to add the second name onto the tag returned
+       from the prior call to this function, and so on like that. Ultimately,
+       the last tag added/created will be returned.
+
+       Sending a list as `name` is useful, for example, for Polygon elements:
+       <Polygon><outerBoundaryIs><LinearRing><coordinates> ...
        </coordinates></LinearRing></outerBoundaryIs></Polygon>
 
-       Return the newly created (or most newly created) child tag."""
+       add(pm, ['Polygon','outerBoundaryIs','LinearRing','coordinates'])
+       is much nicer than
+       add(add(add(add(pm,'Polygon'),'outerBoundaryIs'),'LinearRing'),'coordinates')
+
+       :param tag: a bs4.element.Tag or a bs4.BeautifulSoup
+       :param name: a string name for a Tag or a list of strings
+       :param soup: (optional) a BeautifulSoup used to create new Tags
+       :returns: the added Tag or the final added Tag
+       """
+
+    if soup is None:
+        if tag.name == '[document]':
+            soup = tag
+        else:
+            try:
+                soup = next(iter(parent for parent in tag.parents
+                                 if parent.parent is None))
+            except StopIteration:
+                raise TypeError(
+                        'soup cannot be None if tag is not part of a soup')
     
-    soup = soup or (tag
-                    if tag.parent is None
-                    else next(iter(parent
-                                   for parent in tag.parents
-                                   if parent.parent is None)))
     if isinstance(name, list):
         pointer = tag
         for n in name:
@@ -156,13 +194,11 @@ _SOUP_STOCK = ('<?xml version="1.0" encoding="UTF-8"?>'
 
 def new_soup(name=None, src=_SOUP_STOCK):
     """Create and return a new KML document (bs4.BeautifulSoup).
-
-       This is a convenience method to avoid repetitive boilerplate.
        
-       :param name: a name for the kml document, added as the string of a `<name>`
-       tag as a direct child of the `<Document>` tag
-
-       :param src: a string of valid KML text"""
+       :param name: a name for the kml document, added in a `<name>` tag
+       :param src: a string of valid KML text
+       :returns: a newly created and formatted bs4.BeautifulSoup
+       """
     
     soup = BeautifulSoup(src, 'xml')
     if name is not None:
@@ -174,9 +210,9 @@ def coords_from_tag(coordinates_tag, first_n_coords=2):
     """Return a list of points from `coordinates_tag.string`.
 
        :param coordinates_tag: a KML <coordinates> element (bs4.element.Tag)
-
-       :param first_n_coords: only convert this many dimension terms per
-       point to floats for the returned list"""
+       :param first_n_coords: only convert this many dimensions per point
+       :returns: a list of tuples of floats
+       """
     
     return [tuple([float(dim)
                    for dim in chunk.split(',')][:first_n_coords])
@@ -189,7 +225,9 @@ def coords_to_text(boundary):
        :returns: text like '2.8675309,-90.4000001 1.984,3.14'
        
        This is a convenience method for constructing kml elements as text to
-       be written directly to a file."""
+       be written directly to a file.
+       """
+    
     try:
         return ' '.join(','.join(str(dim)
                                  for dim in point)
@@ -197,42 +235,78 @@ def coords_to_text(boundary):
     except TypeError: #boundary is a point, not a list of points
         return ','.join(str(dim) for dim in point)
 
-def open(filepath):
+def open(filepath, encoding=None):
     """Open and return `file` as a KML document (bs4.BeautifulSoup).
 
-       :param filepath: the name of or relative path to a KML file"""
-    return formatted(BeautifulSoup(_OPEN(filepath), 'xml'))
+       :param filepath: the name of or relative path to a KML file
+       :param encoding: optional character encoding (rarely needed)
+       :returns: a formatted KML document
+       """
+    return formatted(BeautifulSoup(_OPEN(filepath, encoding=encoding),
+                                   'xml'))
 
 def save(soup, filepath):
     """Save `soup` to a file at `filepath`.
 
        :param soup: a KML document (bs4.BeautifulSoup)
-       :param filepath: the name of the file to save"""
+       :param filepath: the name of the file to save
+       :returns: None
+       """
     _OPEN(filepath, 'w').write(str(soup))
+
+def _new_tuples(dims, decimals, coordinates_tag):
+    """Yield individual docked coordinate tuples but not immediate duplicates.
+
+       Convert the coordinate string from `coordinates_tag` into a list of
+       coordinate tuples, truncate each dimension of each of those tuples, and
+       yield that truncated tuple only if the previous yielded value (if there
+       is one) is different.
+
+       By checking for duplicate adjacent values, a small amount of extra space
+       can be saved on top of the space-savings associated with decimal
+       truncation.
+
+       :param dims: number of dimensions to retain per tuple
+       :param decimals: number of digits after the decimal point to keep
+       :coordinates_tag: a <coordinates> KML tag (bs4.element.Tag)
+       :returns: a generator
+       """
+    
+    prev_yield = None
+    for chunk in coordinates_tag.string.strip().split():
+        new_chunk = ','.join(rounding.float(dim, decimals)
+                             for dim in chunk.split(',')[:dims])
+        if new_chunk != prev_yield:
+            prev_yield = new_chunk
+            yield new_chunk
 
 def dock(soup, decimals=6, dims=2):
     """Limit the decimal part of floats in `<coordinates>` tags.
 
        The function mainly exists to help limit the size of files to be used
        with KmlLayers in the Google Maps JS API.
+
+       Unite adjacent duplicate points.
        
        :param soup: a KML document (bs4.BeautifulSoup) or element
        (bs4.element.Tag)
        :param decimals: the max number of digits allowed after the integer
-       part of a number"""
-    import rounding
+       part of a number
+       :returns: None
+       """
     for coordinates_tag in soup("coordinates"):
-        coordinates_tag.string = ' '.join(
-                ','.join(rounding.float(dim, decimals)
-                         for dim in chunk.split(',')[:dims])
-                for chunk in coordinates_tag.string.strip().split())
+        coordinates_tag.string = ' '.join(_new_tuples(dims,
+                                                      decimals,
+                                                      coordinates_tag))
 
 def stokes(layer):
     """Convenience method to check for open seams before coloring.
 
        :param layer: a KML document or Folder (bs4.BeautifulSoup) describing a
-       single layer of polygons on the Earth's surface."""
-    import itertools, stokes
+       single layer of polygons on the Earth's surface.
+       :returns: a list of the net boundaries of the polygons of `layer`
+       """
+    
     outers = [coords_from_tag(coord_tag)
               for coord_tag in itertools.chain.from_iterable(
                       obi('coordinates')
@@ -253,7 +327,8 @@ def stokes_visualize(stoked_bounds):
        a lot of open or overlapping seams, polygons that share no sides with
        the polygons around them that they obviously should share sides with,
        or any other reason to need a human-style intuitive view of the bounds
-       that resulted from stokes.stokes or kml.stokes."""
+       that resulted from stokes.stokes or kml.stokes.
+       """
     soup = new_soup()
     for bound in stoked_bounds:
         pm = add(soup.Document, 'Placemark')
@@ -270,25 +345,40 @@ def stokes_audit(layer, bounds):
        bounds in `bounds`.
 
        :param layer: a kml document (bs4.BeautifulSoup) or Folder
-       :param bounds: a list of lists of points (tuple/list of 2 or 3 floats)"""
-    from stokes import _sides
-    import itertools
+       :param bounds: a list of lists of points (tuple/list of 2 or 3 floats)
+       """
     
     pms = layer('Placemark')
-    
-    pm_sides = []
-    for pm in pms:
-        sides = set()
-        for coord_tag in pm('coordinates'):
-            sides.update(_sides(coords_from_tag(coord_tag)))
-        pm_sides.append(sides)
+    pm_sides = [set(itertools.chain.from_iterable(
+            _sides(coords_from_tag(coord_tag))
+            for coord_tag in pm('coordinates')))
+                for pm in pms]
     
     bound_sides = [set(_sides(bound)) for bound in bounds]
     
-    return [[pms[j]
-             for j in range(len(pms))
+    return [[pm
+             for j, pm in enumerate(pms)
              if pm_sides[j] & bound_sides[i]]
             for i in range(len(bounds))]
+
+def adjacency(layer, scale=None, probe_factor=1000):
+    """Return an adajcency graph for the Placemarks of the layer.
+
+       :param layer: a KML document or Folder
+       :param scale: (optional) exponential scale of spatial index mesh size.
+       If None (default), fuzzy adjacency is not assessed
+       :param probe_factor: divide the length of a side by twice this to get
+       the distance from the side's midpoint to either probe point for that
+       side
+       :returns: a set of ints (vertices) and frozensets of two ints (edges)
+       """
+    
+    pms = layer("Placemark")
+    pm_polygons = [Polygon.from_kml(pms[i], info=i) for i in range(len(pms))]
+    graph = seamless(pm_polygons)
+    if scale is not None:
+        graph |= fuzzy(pm_polygons, probe_factor=probe_factor, scale=scale)
+    return graph
 
 _GREEN_ORANGE = {1 : '7fa8d7b6',
                  2 : '7f065fb4',
@@ -328,31 +418,12 @@ def color(layer,
        :param colorize: a dict from small ints (colors) to their aabbggrr
        color codes (without a # symbol)
 
-       :param icons: a dict from colors to the urls of icons"""
-
-    #Only import these things inside this function so that if these resources
-    #are not available, the rest of the script can still work
-    import color_graph
-    from neighboring import fuzzy, seamless
-    from point_in_polygon import Polygon
+       :param icons: a dict from colors to the urls of icons
+       :returns: None
+       """
     
-    #Get a list of the layer's Placemarks in Polygon form
-    pms = layer("Placemark")
-    
-    pm_polygons = [Polygon.from_kml(pms[i], info=i) for i in range(len(pms))]
-    
-    #describe how the polygons connect to one another by combining the graph
-    #of connections based on perfectly shared sides with the graph of
-    #connections based on point-in-polygon testing of probe points placed
-    #on opposite sides of sides that are not shared between polygons.
-    graph = seamless(pm_polygons)
-
-    if scale is not None:
-        graph |= fuzzy(pm_polygons, probe_factor=probe_factor, scale=scale)
-    
-    #Obtain a coloring of that graph
+    graph = adjacency(layer, scale=scale, probe_factor=probe_factor)
     coloring = color_graph.color(graph)
-    
     apply_color(layer, coloring, colorize=colorize, icons=icons)
     return
 
@@ -368,7 +439,9 @@ def apply_color(layer, coloring, colorize=_GREEN_ORANGE, icons=_BLURPGRELLOW):
        :param layer: a KML document or Folder (bs4.BeautifulSoup)
        :param coloring: a dict from ints starting at 0 to colors (int 1 to 4)
        :param colorize: a dict from color (int 1 to 4) to aabbggrr color
-       :param icons: dict from color (int 1 to 4) to icon url"""
+       :param icons: dict from color (int 1 to 4) to icon url
+       :returns: None
+       """
     
     pms = layer("Placemark")
     
@@ -442,7 +515,8 @@ def spatial_index(soup, scale=16):
        
        :param scale: the width/height of Earth in degrees (as in a Mercator
        projection) is divided by two raised to `scale` to determine the width/
-       height of the cells by which this function indexes space"""
+       height of the cells by which this function indexes space
+       """
     
     pms = soup('Placemark')
     index = {}
@@ -474,7 +548,10 @@ def spatial_index_stats(index):
        per cell.
 
        :param index: a dict from mesh cell to a set of ints >= 0 (index into
-       list of Placemarks), such as the return value of `spatial_index`"""
+       list of Placemarks), such as the return value of `spatial_index`
+
+       :returns: a dict of stats about `index` and the underlying data
+       """
     stats = [len(v) for v in index.values()]
     avg = sum(stats) / len(stats)
     m,M = min(stats), max(stats)
@@ -511,7 +588,11 @@ def _spatial_index(pm, scale):
        :param pm: a `<Placemark>` element of a KML document
        
        :param scale: the exponent of the denominator of the width and height of
-       the indexing cells (in degrees)"""
+       the indexing cells (in degrees)
+
+       :returns: the Placemark's geometry (MultiGeometry, Polygon, LineString,
+       or Point)
+       """
     try:
         return next(iter(
                 f(tag, scale)
@@ -523,6 +604,7 @@ def _spatial_index(pm, scale):
                          'MultiGeometry')
 
 def _spdx_pg(pg, scale):
+    """Spatially index a Polygon."""
     outer = coords_from_tag(pg.outerBoundaryIs.coordinates)
     cells = _cells(outer, 2, scale)
     for ibi in pg('innerBoundaryIs'):
@@ -533,24 +615,34 @@ def _spdx_pg(pg, scale):
     return cells
 
 def _spdx_ls(ls, scale):
+    """Spatially index a LineString."""
     return _cells(coords_from_tag(ls.coordinates), 1, scale)
 
 def _spdx_pt(pt, scale):
+    """Spatially index a Point."""
     return _cells(coords_from_tag(pt.coordinates)[0], 0, scale)
 
 def _spdx_mg(mg, scale):
+    """Spatially index a MultiGeometry."""
     cells = set()
     for geom in mg(list(_TAG_TO_FUNCTION)):
         cells.update(_TAG_TO_FUNCTION[geom.name](geom, scale))
     return cells
 
-def _cells(points, dim, scale, dim2func={}, **named):
-    import spindex as sx
+def _cells(points, dim, scale, dim2func={0:sx.get_cell,
+                                         1:sx.get_cells_1d,
+                                         2:sx.get_cells_2d},
+           **named):
+    """Return the spatial index cells intersecting `points`.
+
+       :param points: a KML geometry element (Polygon, LineString, Point)
+       :param dim: number of dimensions `points` internally has
+       :param scale: exponential scale of spatial index mesh size
+       :param dim2func: map from `dim` to the function that get cells for
+       a geometry of that dimension
+       :param named: named parameters to send to a function from dim2func
+       """
     
-    if not dim2func:
-        dim2func.update({0:sx.get_cell,
-                         1:sx.get_cells_1d,
-                         2:sx.get_cells_2d})
     try:
         func = dim2func[dim]
     except KeyError:
