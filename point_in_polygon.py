@@ -16,6 +16,8 @@ class BBox:
     """A class to model the bounding box of a collection of points in 2D
        space."""
 
+    ADD_IDENT = None
+
     def __init__(self, x, X, y, Y, illegal=False):
         """`x`: low x value
            `X`: high x value
@@ -58,6 +60,7 @@ class BBox:
     
     def __iter__(self):
         return iter([self.x, self.X, self.y, self.Y])
+BBox.ADD_IDENT = BBox(_MAX, _MIN, _MAX, _MIN, illegal=True)
 
 class _Ring(list):
     """A class to represent an inner or outer boundary of a Polygon and to
@@ -70,6 +73,7 @@ class _Ring(list):
                                                       points[0][1],
                                                       points[-1][0],
                                                       points[-1][1]))
+
         p0x, p0y = points[0][:2]
         p1x, p1y = points[-1][:2]
         if p0x != p1x or p0y != p1y:
@@ -272,6 +276,47 @@ class Polygon:
         return self is other
         #return self.outers == other.outers and self.inners == other.inners
     
+    def to_kml(self, soup=None):
+        import kml
+        if soup is None:
+            result = '<Placemark>%s</Placemark>'
+            if len(self.outers) > 1:
+                result %= '<MultiGeometry>%s</MultiGeometry>'
+            for i, outer in enumerate(self.outers):
+                inners = self._out_to_in[i]
+                polygon = '<Polygon><outerBoundaryIs><LinearRing><coordinates>'
+                polygon += kml.coords_to_text(outer)
+                polygon += '</coordinates></LinearRing></outerBoundaryIs>'
+                for inner in inners:
+                    polygon += '<innerBoundaryIs><LinearRing><coordinates>'
+                    polygon += kml.coords_to_text(inner)
+                    polygon += '</coordinates></LinearRing></innerBoundaryIs>'
+                polygon += '</Polygon>%s'
+                
+                result %= polygon
+            result %= ''
+            return result
+        else:
+            result = soup.new_tag('Placemark')
+            focus = result
+            if len(self.outers) > 1:
+                focus = kml.add(focus, 'MultiGeometry', soup=soup)
+            for i, outer in enumerate(self.outers):
+                inners = self._out_to_in[i]
+                polygon = kml.add(focus, 'Polygon', soup=soup)
+                kml.add(polygon,
+                        ['outerBoundaryIs',
+                         'LinearRing',
+                         'coordinates'],
+                        soup=soup).string = kml.coords_to_text(outer)
+                for inner in inners:
+                    kml.add(polygon,
+                            ['innerBoundaryIs',
+                             'LinearRing',
+                             'coordinates'],
+                            soup=soup).string = kml.coords_to_text(inner)
+            return result
+    
     def spatial_index(self, scale):
         import spindex
         
@@ -364,6 +409,17 @@ class Polygon:
         return Polygon(outers, inners, info=info, edge_okay=edge_okay)
     
     @staticmethod
+    def from_boundaries(boundaries, info=None, edge_okay=False):
+        from shapefile import signed_area
+        outers, inners = [], []
+        for boundary in boundaries:
+            if signed_area(boundary) >= 0:
+                outers.append(boundary)
+            else:
+                inners.append(boundary)
+        return Polygon(outers, inners, info=info, edge_okay=edge_okay)
+    
+    @staticmethod
     def from_kml(placemark, info=None, edge_okay=False):
         """Convert a KML Placemark into a Polygon.
 
@@ -373,6 +429,8 @@ class Polygon:
         
         import kml, itertools
         geo = placemark.MultiGeometry or placemark.Polygon
+        if geo is None:
+            print(placemark)
         outers = [kml.coords_from_tag(obi.coordinates)
                   for obi in geo('outerBoundaryIs')]
         
