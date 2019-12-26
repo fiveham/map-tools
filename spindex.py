@@ -191,8 +191,9 @@ def _grow_cells_line_segment(side, scale):
         if not (_passthru(cell, a, b) and
                 box.dim == (_BBox(cell) & box).dim):
             core.remove(cell)
-    
-    return _Cell._cache_back(core)
+
+    return _Cell._INTERN_CACHE.multi(core)
+    #return _Cell._cache_back(core)
 
 def get_cells_1d(points, scale=None):
     """Return a set of the cells that intersect the 1-D feature `points`.
@@ -234,7 +235,7 @@ class _Cell:
     
     @staticmethod
     def get(x_index, y_index, scale, cache=_INTERN_CACHE):
-        return _INTERN_CACHE.single(
+        return cache.single(
                 _Cell(x_index, y_index, scale))
     
     @staticmethod
