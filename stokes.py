@@ -10,6 +10,8 @@ It is difficult to explain why that association makes sense. See the
 why it is difficult to explain."""
 
 def _orientation(side):
+    """Return -1 or 1 based on the orientation from the first to last point.
+    """
     a, b = side
     if a < b:
         return 1
@@ -18,11 +20,27 @@ def _orientation(side):
     else:
         raise ValueError('side connects a vertex to itself: ' + str(side))
 
-class _SideMinder:
-    """A class to keep track of the sums of many directed edges (polygon sides)."""
+class _SideMinder(dict):
+    """A class to keep track of the sums of many directed edges (polygon sides).
+
+       When a given side's net orientation is 0, remove that side as a key
+       to save space in memory."""
     
-    def __init__(self):
-        self.em = {}
+    def __missing__(self, key):
+        return 0
+
+    def __setitem__(self, key, value):
+        if value == 0:
+            try:
+                self.__delitem__(key)
+            except KeyError:
+                pass
+        elif abs(value) == 1:
+            super(_SideMinder, self).__setitem__(key, value)
+        else:
+            raise ValueError(f'net orientation ({value}) of edge ({side}) '
+                              'outside allowed range. This may mean that inner '
+                              'and outer boundaries curl in the same direction.')
     
     def add(self, side):
         """Add `side` to the pile of directed sides already present.
@@ -33,20 +51,11 @@ class _SideMinder:
            dict altogether to save space."""
         
         verts = frozenset(side)
-        new_net_orientation = self.em.get(verts, 0) + _orientation(side)
-        if new_net_orientation == 0:
-            del self.em[verts]
-        elif abs(new_net_orientation) == 1:
-            self.em[verts] = new_net_orientation
-        else:
-            raise ValueError(('net orientation of edge (%s)outside allowed '
-                              'range (%s) This may mean the inner and outer '
-                              'boundaries curl in the same direction.') %
-                              (side, new_net_orientation))
+        self[verts] += _orientation(side)
     
     def net_sides(self):
         nets = set()
-        for frznst, orinttn in self.em.items():
+        for frznst, orinttn in self.items():
             x,y = frznst
             points_alphabetical = (x,y)
             points_alphabetical_reverse = (y,x)
