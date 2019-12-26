@@ -1,116 +1,22 @@
 """A helper to handle KML files as bs4.BeautifulSoup XML documents."""
 
 import itertools
+
+from shapefile import signed_area
+
 import color_graph
 import rounding
 import spindex as sx
-import stokes
-from bs4.element import CData, NavigableString, Tag
-from bs4 import BeautifulSoup
+import stokes as _STOKES
+
 from neighboring import fuzzy, seamless
 from point_in_polygon import Polygon
 from stokes import _sides
 
-_OPEN = open
+from . import kmz
+from . import layers
 
-REPLACE = {'<': '&lt;',
-           '>': '&gt;',
-           '&': '&amp;'}
-
-def _as_html(string):
-    """Return a copy of `string` where all less-thans, greater-thans, 
-       and ampersands are replaced by their HTML character entity equivalents.
-       
-       :param string: a string
-       :returns: a string where certain chars are replaced by html entity codes
-       """
-    
-    for k,v in REPLACE.items():
-        string = string.replace(k,v)
-    return string
-
-def format(soup, no_empty=False):
-    """Remove all leading and trailing whitespace on all strings in `soup`, 
-       remove all empty or self-terminating tags, remove all kml: prefixes 
-       from all tags, and ensure that all CDATA tags are properly wrapped in
-       CData objects.
-       
-       This function modifies the `soup` object.
-       
-       `soup` : a KML document (bs4.BeautifulSoup)
-       
-       CDATA in KML gets parsed correctly when read from text, but when that
-       CDATA text is put into string representations of the tag it's
-       in, it is blindly given HTML entity substitution instead of being
-       wrapped in "<![CDATA[...]]>"
-
-       This function hunts down CDATA strings in `soup` and replaces them with
-       bs4.element.CData objects so that they print in the "<![CDATA[...]]>"
-       form.
-       
-       A KML document when converted to a string will often "kml:" prefixes on
-       every tag. A KML file like that opens perfectly in Google Earth,
-       but the Google Maps Javascript API's KmlLayer class insists that those
-       make the file an "INVALID_DOCUMENT".
-
-       This function checks every single tag and removes the "kml" prefix if it
-       is present.
-       
-       There is never any reason for whitespace padding at the front or end of
-       a string in a tag in a KML document. Similarly, pure-whitespace strings
-       have no meaning in a kml document.
-
-       This function checks every string in `soup`, replaces trimmable strings
-       with their trimmed counterparts, and outright removes pure-whitespace
-       strings.
-       
-       Empty or self-terminating tags do nothing in a KML document. This
-       function checks every tag and removes the empty/self-terminating
-       ones.
-
-       :param soup: a KML document (bs4.BeautifulSoup)
-
-       :param no_empty: if True, remove empty tags. Default False.
-
-       :returns: None
-       """
-    
-    strip = []
-    destroy = []
-    for e in soup.descendants:
-        if isinstance(e, NavigableString):
-            if e.isspace():
-                destroy.append(e) #remove empty strings
-            elif e.strip() != e:
-                strip.append(e) #trim trimmable strings
-        elif isinstance(e, Tag):
-            if e.prefix == "kml":
-                e.prefix = None #remove kml: prefixes
-            if e.string and e.string.parent is e: #.string works indirectly
-                e.string = e.string.strip() #trim some trimmable strings
-                if any(c in e.string for c in REPLACE):
-                    cdata = CData(e.string)
-                    if len(str(cdata)) <= len(_as_html(e.string)):
-                        e.string = cdata #use CDATA to wrap HTML
-    for d in destroy:
-        d.extract()
-    for s in strip:
-        s.replace_with(s.strip())
-    if no_empty:
-        for tag in soup(lambda thing : isinstance(thing,Tag) and
-                        len(list(thing.contents)) == 0):
-            tag.decompose()
-
-def formatted(soup, **kwargs):
-    """Format `soup` and return it. Convenience function wrapping `format`.
-    
-       :param soup: a KML document (bs4.BeautifulSoup)
-       :param no_empty: (optional, default False) remove empty tags if True
-       :returns: `soup`
-       """
-    
-    format(soup, **kwargs)
-    return soup
+from .io import _OPEN, open, parse, save, format, formatted
 
 def get_data(pm, name=None):
     """Find a `<Data>` or `<SimpleData>` element in `pm` having the specified
@@ -235,25 +141,6 @@ def coords_to_text(boundary):
     except TypeError: #boundary is a point, not a list of points
         return ','.join(str(dim) for dim in point)
 
-def open(filepath, encoding=None):
-    """Open and return `file` as a KML document (bs4.BeautifulSoup).
-
-       :param filepath: the name of or relative path to a KML file
-       :param encoding: optional character encoding (rarely needed)
-       :returns: a formatted KML document
-       """
-    return formatted(BeautifulSoup(_OPEN(filepath, encoding=encoding),
-                                   'xml'))
-
-def save(soup, filepath):
-    """Save `soup` to a file at `filepath`.
-
-       :param soup: a KML document (bs4.BeautifulSoup)
-       :param filepath: the name of the file to save
-       :returns: None
-       """
-    _OPEN(filepath, 'w').write(str(soup))
-
 def _new_tuples(dims, decimals, coordinates_tag):
     """Yield individual docked coordinate tuples but not immediate duplicates.
 
@@ -306,16 +193,26 @@ def stokes(layer):
        single layer of polygons on the Earth's surface.
        :returns: a list of the net boundaries of the polygons of `layer`
        """
+
+    if isinstance(layer, list):
+        obis = itertools.chain.from_iterable(pm('outerBoundaryIs')
+                                             for pm in layer)
+        ibis = itertools.chain.from_iterable(pm('innerBoundaryIs')
+                                             for pm in layer)
+    else:
+        obis = layer('outerBoundaryIs')
+        ibis = layer('innerBoundaryIs')
+                        
     
     outers = [coords_from_tag(coord_tag)
               for coord_tag in itertools.chain.from_iterable(
-                      obi('coordinates')
-                      for obi in layer('outerBoundaryIs'))]
+                      obi('coordinates') for obi in obis)]
+    outers = [x if signed_area(x) >= 0 else list(reversed(x)) for x in outers]
     inners = [coords_from_tag(coord_tag)
               for coord_tag in itertools.chain.from_iterable(
-                      obi('coordinates')
-                      for obi in layer('innerBoundaryIs'))]
-    return stokes.stokes(itertools.chain(outers, inners))
+                      ibi('coordinates') for ibi in ibis)]
+    inners = [x if signed_area(x) < 0 else list(reversed(x)) for x in inners]
+    return _STOKES.stokes(itertools.chain(outers, inners))
 
 def stokes_visualize(stoked_bounds):
     """Visualize complex stokes output as a kml document (bs4.BeautifulSoup).
@@ -361,10 +258,11 @@ def stokes_audit(layer, bounds):
              if pm_sides[j] & bound_sides[i]]
             for i in range(len(bounds))]
 
-def adjacency(layer, scale=None, probe_factor=1000):
+def adjacency(layer, sorter=None, scale=None, probe_factor=1000):
     """Return an adajcency graph for the Placemarks of the layer.
 
        :param layer: a KML document or Folder
+       :param sorter: function accepting a Placemark element, returning an int
        :param scale: (optional) exponential scale of spatial index mesh size.
        If None (default), fuzzy adjacency is not assessed
        :param probe_factor: divide the length of a side by twice this to get
@@ -374,6 +272,8 @@ def adjacency(layer, scale=None, probe_factor=1000):
        """
     
     pms = layer("Placemark")
+    if sorter is not None:
+        pms.sort(key=sorter)
     pm_polygons = [Polygon.from_kml(pms[i], info=i) for i in range(len(pms))]
     graph = seamless(pm_polygons)
     if scale is not None:
@@ -470,7 +370,7 @@ def apply_color(layer, coloring, colorize=_GREEN_ORANGE, icons=_BLURPGRELLOW):
         soup.Document.insert(0, style)
         style['id'] = i
         add(style, ['PolyStyle', 'color']).string = colorize[int(i[-1])]
-        add(style, ['LineStyle', 'color']).string = '7fcccccc'
+        add(style, ['LineStyle', 'color']).string = '00cccccc'
         add(style, ['IconStyle', 'Icon', 'href']).string = icons[int(i[-1])]
     
     return
@@ -653,3 +553,43 @@ _TAG_TO_FUNCTION = {'MultiGeometry': _spdx_mg,
                     'Polygon'      : _spdx_pg,
                     'LineString'   : _spdx_ls,
                     'Point'        : _spdx_pt}
+
+from .styles import stylize
+
+def time_graph(files, sorter):
+    assert all(x.endswith('.kml' ) for x in files)
+    soups = [open(file) for file in files]
+    polygonsies = []
+    for soup in soups:
+        polygons = [Polygon.from_kml(polygon, info=polygon)
+                    for polygon in soup('Placemark')]
+        polygons.sort(key=(lambda poly : sorter(poly.info)))
+        polygonsies.append(polygons)
+    return set(itertools.chain.from_iterable(
+            seamless(polygons)
+            for polygons in polygonsies))
+
+def color_soups_through_time(files, sorter):
+    """Turn a list of kml file names into a list of soups all colored the same.
+
+       Use the same district-number-to-color dict to color each Placemark in
+       each soup.
+       
+       :param files: a list of string file/paths to different kml versions of
+       the same district layer
+       :param sorter: callable: kml Placemark element (bs4.Tag) -> int (distr.)
+       """
+    
+    all_graph = time_graph(files, sorter)
+
+    soups = [open(file) for file in files]
+    color_graph.COLORS = {1,2,3,4,5}
+    try:
+        coloring = color_graph.color(all_graph)
+        for soup in soups:
+            stylize(soup, {k+1:v for k,v in coloring.items()}, sorter,
+                    d2=styles._COLORS_5, d0=None)
+    finally:
+        color_graph.COLORS = {1,2,3,4}
+
+    return soups
