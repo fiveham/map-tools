@@ -158,18 +158,20 @@ def _local_shift(vertex, neighboring, init_coloring):
        color assignment based on `init_coloring` which has one of the neighbors
        of `vertex` recolored in that way.
 
-       `vertex` : a vertex with at least one neighbor of each color
-       `neighboring` : a dict from vertex (int) to a set of the vertices that
-                       share an edge with that key
-       `init_coloring` : the established coloring assignments for the graph,
-                         of which a modified version should be returned"""
-    colored_neighbors = _get_colored_neighbors(vertex,
-                                               neighboring,
-                                               init_coloring)
+       :param vertex: a vertex with at least one neighbor of each color
+       :param neighboring: a dict from vertex (int) to a set of the vertices
+       that share an edge with that key
+       :param init_coloring: the established coloring assignments for the
+       graph, of which a modified version should be returned
+       """
+    
     neighbors_with_options = [
-            neighbor
-            for neighbor in colored_neighbors
-            if 1 < len(_legal_colors(neighbor, neighboring, init_coloring))]
+            n for n in neighboring[vertex]
+            if (n in init_coloring and
+                init_coloring[n] != 0 and
+                _legal_colors(n,
+                              neighboring,
+                              init_coloring) > {init_coloring[n]})]
     what_ifs = set()
     for neighbor in neighbors_with_options:
         options = _legal_colors(neighbor, neighboring, init_coloring)
@@ -216,11 +218,10 @@ class CannotColor(Exception):
     pass
 
 def color(graph, init_coloring=None):
-    """`graph` : a set of vertices (int) and edges (frozenset) which each
-                 contain two vertices that are connected.
-       `init_coloring` : (optional) a dict mapping from vertex (int) to color
-                         (int 1-4), describing a partial coloring of the
-                         graph."""
+    """:param graph: a set of vertices (int) and edges (frozenset) which each
+       contain two vertices that are connected.
+       :param init_coloring: (optional) partial coloring of the graph, a dict
+       from vertex (int) to color (int 1-4)"""
     #boilerplate
     vertices, edges, neighboring = vertices_edges_neighboring(graph)
     
@@ -246,12 +247,72 @@ def color(graph, init_coloring=None):
                 break #out of while loop
             color = min(_legal_colors(vertex, neighboring, coloring))
         coloring[vertex] = color
-    else: #Exiting normally rather than due to a problem
-        for vertex in neighboring:
+    else:
+        # Exiting normally rather than due to a problem
+        # Randomize colors to smooth
+        for vertex in vertices:
             legals = _legal_colors(vertex, neighboring, coloring)
-            counts = Counter(coloring.values())
-            coloring[vertex] = min(legals, key=(lambda c : counts[c]))
+            if legals:
+                counts = Counter(coloring.values())
+                coloring[vertex] = min(legals, key=(lambda c : counts[c]))
+            
+        # then check for single-color weirdness
+        counts = Counter(coloring.values())
+        coloring_list = list(counts.most_common())
+        c0, n0 = coloring_list[0]
+        c_, n_ = coloring_list[-1]
+        if n0 - n_ > 1:
+            vs_c0 = {k for k,v in coloring.items() if v == c0}
+            try:
+                x = next(iter(v for v in vs_c0
+                              if c_ in _legal_colors(v,
+                                                     neighboring,
+                                                     coloring)))
+            except StopIteration:
+                pass
+            else:
+                coloring[x] = c_
     
     print(sum(1 for v in coloring.values() if v != 0),
           Counter(coloring.values()))
+    illegal_edge_count = sum(1
+                             for a,b in (x
+                                         for x in graph
+                                         if isinstance(x, frozenset))
+                             if (a in coloring and
+                                 b in coloring and
+                                 coloring[a] == coloring[b]))
+    if illegal_edge_count:
+        print(f'{illegal_edge_count} illegal edges')
     return coloring
+
+def coloring_number(graph):
+    """Find how many colors are needed to color this graph based on K_x subgraphs.
+       """
+    nay = {i:set() for i in graph if isinstance(i, int)}
+    for e in graph:
+        if isinstance(e, frozenset):
+            a,b = e
+            nay[a].add(b)
+            nay[b].add(a)
+
+    PTS = {e for e in graph if isinstance(e, frozenset)}
+    scale = 2
+    while len(PTS) >= scale + 1:
+        scale += 1
+        pts, PTS = PTS, set()
+        for e in pts:
+            pool = _mass_intxn(nay[v] for v in e)
+            for z in pool:
+                PTS.add(frozenset(e | {z}))
+    return scale, pts
+
+def _mass_intxn(sets):
+    it = iter(sets)
+    pool = next(it)
+    while True:
+        try:
+            pool &= next(it)
+        except StopIteration:
+            break
+    return pool
