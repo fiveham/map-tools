@@ -1,17 +1,23 @@
-"""A script to read and write text data from/to files.
+"""A module to read and write text data from/to files.
 
-The main functions of this script are `read` and `write`, which take pathnames
+The main functions are `read` and `write`, which take pathnames
 for the file to read or write, not file-like objects, and which return and
-accept (respectively) a list of dicts whose keys are the column headings in the
-file.
+accept (respectively) a list of dicts with the same keys and whose keys are
+the column headings in the file.
 
-The file format expected and implemented when reading and writing from and to
-a file is that the first line is column names and that every subsequent line
-is the entries for a new record. Column names are record entries are delimited
-by the same delimiter (and can be made to contain the delimiter by using a
-text qualifier)."""
+The expected file format is that the first line is column names and that each
+subsequent line is the entries of a record. Column names and record entries
+are delimited by the same delimiter (and can be made to contain the delimiter
+by using a text qualifier)."""
 
 def _anneal_by_qualifier(elements, qualifier, delim):
+    """Account for delimited text by squishing adjacent elements together.
+
+       :param elements: a list of strings
+       :param qualifier: string, often '"'
+       :param delim: string, often '\t' or ','
+       :returns: `elements`, mutated
+    """
     if qualifier:
         while any(delimited_piece.startswith(qualifier)
                   for delimited_piece in elements):
@@ -28,6 +34,16 @@ def _anneal_by_qualifier(elements, qualifier, delim):
     return elements
 
 def _by_lines(line_source, delim, qualifier, translate):
+    """Yield dict records from `line_source`
+
+       :param line_source: an iterable of strings
+       :param delim: the text delimiter, often '\t' or ','
+       :param qualifier: string that turns on/off ignoring delimiters
+       :param translate: a dict mapping from column name to a function that
+       transforms the file-stored version of a value to its proper runtime form
+       :returns: a generator
+    """
+    
     columns = []
     
     for line in line_source:
@@ -50,11 +66,8 @@ def _read(path_name, delim, qualifier, translate):
     """Read the file at `path_name` and return its content as a list of dicts.
        
        :param path_name: name of (and path to) the file to read
-       
        :param delim: delimiter to separate entries within a record
-       
        :param qualifier: ignore delimiters inside a pair of these
-       
        :param translate: dict from column name to a callable that transforms
        entries from that column"""
 
@@ -75,10 +88,8 @@ def _check_delim(path_name, kwargs, by_extension={'.txt':'\t', '.csv':','}):
 
        :param path_name: a string ending with the name of the file that a
        table is read from or written to
-       
        :param kwargs: a dict of named parameters specified by the user
        calling `read()` or `write()`
-       
        :param by_extension: a dict mapping from file extension to a
        pre-defined corresponding delimiter"""
     
@@ -93,10 +104,21 @@ def _check_delim(path_name, kwargs, by_extension={'.txt':'\t', '.csv':','}):
                 for extension, delim in by_extension.items()
                 if path_name.endswith(extension)))
     except StopIteration:
-        pass
-    
-    raise ValueError('Delimiter `delim` not specified. Could not '
-                     'assume based on file extension.')
+        raise ValueError('Delimiter `delim` not specified. Could not '
+                         'assume based on file extension.')
+
+def _check_qualifier(path_name, delim, kwargs):
+    for q in ('qualifier', 'qual'):
+        try:
+            return kwargs['qualifier']
+        except KeyError:
+            pass
+    if path_name.lower().endswith('csv'):
+        first_record = next(iter(_read(path_name, delim, '', {})))
+        if all(column.startswith('"') and column.endswith('"')
+               for column in first_record):
+            return '"'
+    return ''
 
 def read(path_name, *args, **kwargs):
     
@@ -108,14 +130,23 @@ def read(path_name, *args, **kwargs):
        :param delim: the delimiter used between cell entries in the table.
        Defaults to tab ('\t') for files ending in .txt and to comma (',')
        for files ending in .csv.
+
+       :param qual: text qualifier, prepended and appended to cell entry text
+       to prevent delim instance being used to delimit text
+
+       :param qualifier: alias for qual
        
        :param translate: a dict mapping from column name to a callable (such
-       as `int` or `float` or `eval`) which translates a value in that column
+       as `int`, `float`, or `eval`) which translates a value in that column
        into a new form.
        """
     
+    from os import PathLike
+    if isinstance(path_name, PathLike):
+        path_name = path_name.__fspath()
+    
     delim     = _check_delim(path_name, kwargs)
-    qualifier = kwargs.get('qualifier', '')
+    qualifier = _check_qualifier(path_name, delim, kwargs)
     translate = kwargs.get('translate', {})
     
     return list(_read(path_name, delim, qualifier, translate))
@@ -172,14 +203,12 @@ class Table(list):
        just like an ordinary `list`, because `__getitem__` delegates to the
        superclass in those cases.
        """
-    
+ 
     @staticmethod
-    def _read(filename):
-        return Table(read(filename))
-    
-    @staticmethod
-    def read(filename):
-        return _read(filename)
+    def read(filename, *args, **kwargs):
+        """Read the file and return a Table of its contents.
+           :param filename: name of or path to a file"""
+        return Table(read(filename, *args, **kwargs))
     
     def __init__(self, records, **formats):
         super(Table, self).__init__(records)
@@ -328,3 +357,56 @@ class Table(list):
     def __delattr__(self, name):
         """Delegate to `__delitem__`. `del table.a` means `del table['a']`."""
         del self[name]
+
+
+def _clean_(piece):
+	piece = piece.strip()
+	a = 1 if piece.startswith('"') else None
+	b = -1 if piece.endswith('"') else None
+	return piece[a:b]
+
+def _split_(line):
+	ignore_comma = False
+	pieces = []
+	piece = ''
+	for c in line:
+		if c == '"':
+			ignore_comma = not ignore_comma
+			piece += c
+		elif c == ',' and not ignore_comma:
+			pieces.append(clean(piece))
+			piece = ''
+		else:
+			piece += c
+	else:
+		pieces.append(clean(piece))
+	return pieces
+
+def _to_table_(file):
+	with open(file) as outof:
+		columns = []
+		table = []
+		for line in outof:
+			if line.endswith('\n'):
+				line = line[:-1]
+			elements = split(line)
+			if not columns:
+				columns = elements
+				continue
+			table.append({columns[i]:elements[i] for i in range(max(len(elements),len(columns)))})
+		return table
+
+def pretty_print(table):
+    try:
+        columns = table.columns
+    except:
+        columns = list(table[0])
+    else:
+        columns = list(columns)
+
+    rows = [[str(record[column]) for column in columns] for record in table]
+    widths = [max(len(row[i]) for row in rows) for i in range(len(columns))]
+    for row in rows:
+        for item, width in zip(row, widths):
+            print(item, end=(' '*(1 + width - len(item))))
+        print()
