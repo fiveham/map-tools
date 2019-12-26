@@ -5,9 +5,14 @@
    script would be called kml.layers, which closely resembles the name of the
    KmlLayer class."""
 
-from bs4.element import Tag
+import itertools
 
-STD_EXCEPTIONS = ['styleUrl','visibility','open']
+from bs4.element import Tag
+from .io import open as openkml
+
+import point_in_polygon
+
+STD_EXCEPTIONS = ['styleUrl','visibility','open','ExtendedData']
 
 def filter_kmllayer(soup, exceptions=STD_EXCEPTIONS):
     """Transform a KML soup (bs4) to ensure compatability with the KmlLayer
@@ -33,7 +38,7 @@ def filter_kmllayer(soup, exceptions=STD_EXCEPTIONS):
         -1: (lambda x : x.decompose())}
     keep = 1
     decomp = -1
-    for tag in soup(lambda thing : isinstance(thing, Tag)):
+    for tag in soup(True):
         action = (decomp
                   if (tag.name not in KMLLAYER_TAG_SUPPORT or
                       KMLLAYER_TAG_SUPPORT[tag.name].lower().startswith('n'))
@@ -288,25 +293,22 @@ def _best_neighbor(pt,seq):
 #measure determines the weight of a given sequence of Placemarks
 #preprocess accepts and returns a soup
 def split(kml_file_name, piece_count, name=None, 
-          preprocess=None, key=mid_east, measure=count):
+          preprocess=None, key=mid_east, measure=characters):
+    """Sort Placemarks geographically to smoothly split a large KML file."""
     
-    from bs4 import BeautifulSoup
-    import kml
-    
-    if name is None:
-        name = kml_file_name[:-4]
-        while '/' in name:
-            name = name[name.index('/')+1:]
     if preprocess is None:
         preprocess = lambda x : x
-    source = preprocess(BeautifulSoup(open(kml_file_name,'r'),'xml'))
+    
+    source = preprocess(openkml(kml_file_name))
+    
     pms = source("Placemark")
     if piece_count > len(pms):
         raise Exception(
-            "Cannot split %d item list into %d pieces" %
-            (len(pms),piece_count))
-    seq = [(i,key(pms[i]),measure(pms[i])) for i in range(len(pms))]
-    seq.sort(key=(lambda t : t[1]))
+            f'Cannot split {len(pms)}-item list into {piece_count} pieces')
+    
+    seq = sorted(((i, key(pm), measure(pm))
+                  for i,pm in enumerate(pms)),
+                 key=(lambda t : t[1]))
 
     #starting point has partitions approx equally spaced. should be near max
     point = tuple(round((len(seq)/piece_count)*i)
@@ -318,23 +320,26 @@ def split(kml_file_name, piece_count, name=None,
         other_qual, other = _best_neighbor(point, seq)
     assert _quality(other,seq) != _quality(point,seq)
 
-    markers = [0]+list(point)+[len(seq)]
-    partitioned = [seq[markers[i-1]:markers[i]]
-                   for i in range(1,len(markers))]
-    part_pms = [[pms[b[0]] for b in a]
-                for a in partitioned]
+    markers = [0] + list(point) + [len(seq)]
+    partitioned = [seq[a:b]
+                   for a,b in (markers[i-1:i+1]
+                               for i in range(1, len(markers)))]
+    part_pms = [[pms[x] for x, _0, _1 in pttn]
+                for pttn in partitioned]
     
     soups = []
     for i in range(len(part_pms)):
         pm_part = part_pms[i]
-        soup = kml.open(kml_file_name)
+        soup = openkml(kml_file_name)
         for pm in soup("Placemark"):
             pm.decompose()
         for pm in pm_part:
             soup.Document.append(pm)
-        if soup.Document.find('name') is None:
-            soup.Document.insert(0, soup.new_tag('name'))
-        soup.Document.find('name').string = name + f'_split_{i}'
+        if (soup.Document.find('name', recursive=False) is None and
+            name is not None):
+            name_tag = soup.new_tag('name')
+            soup.Document.insert(0, name_tag)
+            name_tag.string = f'{name}_split_{i}'
         soups.append(soup)
     return soups
 
@@ -380,3 +385,63 @@ def sort_points(soup):
                      parent((lambda tag : tag.name == 'Placemark' and
                                           bool(tag.Point)),
                             recursive=False))
+
+
+
+
+# ============================================================================ #
+# ========================== Convert KML to GeoJSON ========================== #
+# ============================================================================ #
+
+def geojson(soup, get_properties=None):
+    return {'type':'FeatureCollection',
+            'features': list(itertools.chain.from_iterable(_features(
+                    pm, get_properties)
+                    for pm in soup('Placemark')))}
+
+def _std_get_properties(pm):
+    props = get_data(pm)
+    if pm.styleUrl:
+        props['style_id'] = pm.styleUrl.string[1:]
+    return props
+
+def _jsonify_bound(bound):
+    """Convert the point tuples into lists. JSON doesn't have tuples."""
+    return [list(point)[:2] for point in bound]
+
+def _geometry(outer, inners):
+    """Geometry of a single polygon (single exterior)."""
+    coordinates = [_jsonify_bound(bound)
+                   for bound in itertools.chain([outer], inners)]
+    return {'type': 'Polygon',
+            'coordinates': coordinates}
+
+def _get_geometries(pm):
+    """Return a list in case `pm` has a MultiGeometry"""
+    polygon = point_in_polygon.Polygon.from_kml(pm)
+    outers = polygon.outers
+    inners = polygon.inners
+    o2is = polygon._out_to_in
+    return [_geometry(outers[outer], inners)
+            for outer, inners in o2is.items()]
+
+def _features(placemark, get_properties):
+    if get_properties is None:
+        get_properties = _std_get_properties
+    
+    properties = get_properties(placemark)
+    
+    geometries = _get_geometries(placemark)
+    return [{'type': 'Feature',
+             'properties': properties,
+             'geometry': geo}
+            for geo in geometries]
+
+
+
+
+
+
+
+
+
