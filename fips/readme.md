@@ -9,6 +9,6 @@ Because I was sick of hardcoding stuff into scripts that only pertained to a sin
 With `fips`, getting magic-free access to all the county fips codes for, say, Kansas, is just a matter of 
 
     import fips
-    fips.states.ks.counties.code #evaluates to a generator expression
+    fips.states.ks.counties.countyfp #evaluates to a generator
 
 Most states' counties' fips codes start at 1 and increase by 2s, but there are a few with some even-coded counties. That's some devilish detail. Memorized lists of fips codes are the only way around that sort of weird exception.
